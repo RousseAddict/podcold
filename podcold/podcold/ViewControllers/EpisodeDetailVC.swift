@@ -99,7 +99,7 @@ class EpisodeDetailVC: UIViewController {
             y += 12
 
             let descLabel = UILabel()
-            descLabel.text = episode.summary
+            descLabel.text = stripHTML(episode.summary)
             descLabel.textColor = UIColor(white: 0.75, alpha: 1)
             descLabel.backgroundColor = .clear
             descLabel.font = UIFont.systemFont(ofSize: 13)
@@ -149,6 +149,37 @@ class EpisodeDetailVC: UIViewController {
         }
         Episode.removeFromDownloads(guid: episode.guid)
         updateDownloadButton(progress: nil)
+    }
+
+    private func stripHTML(_ s: String) -> String {
+        // Remove tags
+        var out = ""
+        var inTag = false
+        for c in s {
+            if c == "<" { inTag = true }
+            else if c == ">" { inTag = false }
+            else if !inTag { out.append(c) }
+        }
+        // Decode common HTML entities
+        out = out.replacingOccurrences(of: "&amp;",  with: "&")
+        out = out.replacingOccurrences(of: "&lt;",   with: "<")
+        out = out.replacingOccurrences(of: "&gt;",   with: ">")
+        out = out.replacingOccurrences(of: "&quot;", with: "\"")
+        out = out.replacingOccurrences(of: "&#39;",  with: "'")
+        out = out.replacingOccurrences(of: "&nbsp;", with: " ")
+        // Collapse runs of whitespace/newlines left by removed block tags
+        var result = ""
+        var prevNewline = false
+        for c in out {
+            if c == "\n" || c == "\r" {
+                if !prevNewline { result.append("\n") }
+                prevNewline = true
+            } else {
+                prevNewline = false
+                result.append(c)
+            }
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @objc private func playTapped() {

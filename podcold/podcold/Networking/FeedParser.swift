@@ -31,7 +31,7 @@ class FeedParser: NSObject, XMLParserDelegate {
         HTTPClient.get(url: feedUrl) { data, _ in handle(data) }
         if let http = httpUrl { HTTPClient.get(url: http) { data, _ in handle(data) } }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 22) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 32) {
             guard !done else { return }
             done = true
             completion([])

@@ -45,12 +45,12 @@ class EpisodeDownloader: NSObject, NSURLConnectionDataDelegate {
     }
 
     func connection(_ c: NSURLConnection,
-                    canAuthenticateAgainstProtectionSpace space: URLProtectionSpace) -> Bool {
+                    canAuthenticateAgainstProtectionSpace space: NSURLProtectionSpace) -> Bool {
         return space.authenticationMethod == NSURLAuthenticationMethodServerTrust
     }
 
     func connection(_ c: NSURLConnection,
-                    didReceive challenge: URLAuthenticationChallenge) {
+                    didReceiveAuthenticationChallenge challenge: URLAuthenticationChallenge) {
         sslBypass(challenge)
     }
 

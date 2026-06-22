@@ -8,7 +8,7 @@ class HTTPClient {
         }
         var req = URLRequest(url: nsUrl)
         req.httpMethod = "GET"
-        req.timeoutInterval = 20
+        req.timeoutInterval = 30
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         send(req, completion: completion)
     }
@@ -19,7 +19,7 @@ class HTTPClient {
         }
         var req = URLRequest(url: nsUrl)
         req.httpMethod = "POST"
-        req.timeoutInterval = 20
+        req.timeoutInterval = 30
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         if let data = try? JSONSerialization.data(withJSONObject: body) { req.httpBody = data }
@@ -55,7 +55,7 @@ private class NSURLFetcher: NSObject, NSURLConnectionDataDelegate {
         active.append(f)
 
         // Schedule in .common so it fires in both default and UITracking run loop modes
-        let t = Timer(timeInterval: 20, target: f, selector: #selector(NSURLFetcher.timedOut),
+        let t = Timer(timeInterval: 30, target: f, selector: #selector(NSURLFetcher.timedOut),
                       userInfo: nil, repeats: false)
         RunLoop.main.add(t, forMode: .common)
         f.timer = t
@@ -76,8 +76,32 @@ private class NSURLFetcher: NSObject, NSURLConnectionDataDelegate {
     func connectionDidFinishLoading(_ c: NSURLConnection) { finish(accumulated, nil) }
     func connection(_ c: NSURLConnection, didFailWithError e: Error) { finish(nil, e) }
 
-    // iOS 6+ preferred SSL bypass (overrides old canAuthenticate + didReceiveChallenge pair)
+    // Explicit redirect — returning the request ensures iOS 6 calls our auth challenge
+    // delegate methods for the redirect-target's TLS connection.
+    func connection(_ c: NSURLConnection, willSend request: URLRequest,
+                    redirectResponse: URLResponse?) -> URLRequest? {
+        return request
+    }
+
+    // SSL bypass — both old-style and new-style.
+    // On iOS 6, redirect-leg TLS connections may invoke old-style methods instead of
+    // willSendRequestFor:. Implementing all three ensures bypass works in every case.
+
     func connection(_ c: NSURLConnection, willSendRequestFor challenge: URLAuthenticationChallenge) {
+        sslBypass(challenge)
+    }
+
+    func connection(_ c: NSURLConnection, canAuthenticateAgainstProtectionSpace
+                    space: URLProtectionSpace) -> Bool {
+        return space.authenticationMethod == NSURLAuthenticationMethodServerTrust
+    }
+
+    func connection(_ c: NSURLConnection,
+                    didReceive challenge: URLAuthenticationChallenge) {
+        sslBypass(challenge)
+    }
+
+    private func sslBypass(_ challenge: URLAuthenticationChallenge) {
         guard let sender = challenge.sender else { return }
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
            let trust = challenge.protectionSpace.serverTrust {
