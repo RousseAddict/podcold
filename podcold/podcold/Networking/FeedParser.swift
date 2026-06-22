@@ -13,7 +13,9 @@ class FeedParser: NSObject, XMLParserDelegate {
     // MARK: — Public entry point
 
     static func parse(feedUrl: String, podcastTitle: String, completion: @escaping ([Episode]) -> Void) {
-        // Race HTTP and HTTPS in parallel — whichever responds first wins.
+        // Use CurlFetcher (libcurl + OpenSSL) — handles GCM ciphers that NSURLConnection
+        // (Apple Secure Transport) cannot negotiate on iOS 6. Race HTTPS and HTTP in
+        // parallel; whichever returns data first wins.
         let httpUrl: String? = feedUrl.lowercased().hasPrefix("https://")
             ? "http://" + String(feedUrl.dropFirst(8))
             : nil
@@ -28,8 +30,8 @@ class FeedParser: NSObject, XMLParserDelegate {
             completion(eps)
         }
 
-        HTTPClient.get(url: feedUrl) { data, _ in handle(data) }
-        if let http = httpUrl { HTTPClient.get(url: http) { data, _ in handle(data) } }
+        CurlFetcher.fetchData(url: feedUrl, timeout: 30) { data in handle(data) }
+        if let http = httpUrl { CurlFetcher.fetchData(url: http, timeout: 30) { data in handle(data) } }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 32) {
             guard !done else { return }
