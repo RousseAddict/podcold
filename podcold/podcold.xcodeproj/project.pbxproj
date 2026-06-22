@@ -31,6 +31,11 @@
 		BB000001000000000000BC0E /* NowPlayingVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0E /* NowPlayingVC.swift */; };
 		BB000001000000000000BC10 /* HomeVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB10 /* HomeVC.swift */; };
 		BB000001000000000000BC11 /* DownloadsVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB11 /* DownloadsVC.swift */; };
+		BB000001000000000000BC12 /* CurlFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB12 /* CurlFetcher.swift */; };
+		BB000001000000000000BC13 /* curl_bridge.c in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB13 /* curl_bridge.c */; };
+		BB000001000000000000BC14 /* atomic_stubs.c in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB14 /* atomic_stubs.c */; settings = {COMPILER_FLAGS = "-fno-builtin"; }; };
+		BB000001000000000000BB15 /* atomic_stubs.S */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.asm; path = atomic_stubs.S; sourceTree = "<group>"; };
+		BB000001000000000000BC15 /* atomic_stubs.S in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB15 /* atomic_stubs.S */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -78,6 +83,9 @@
 		BB000001000000000000BB0E /* NowPlayingVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingVC.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB10 /* HomeVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeVC.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB11 /* DownloadsVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsVC.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB12 /* CurlFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurlFetcher.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB13 /* curl_bridge.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = curl_bridge.c; sourceTree = "<group>"; };
+		BB000001000000000000BB14 /* atomic_stubs.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = atomic_stubs.c; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -166,6 +174,10 @@
 				BB000001000000000000BB02 /* iTunesAPI.swift */,
 				BB000001000000000000BB03 /* FeedParser.swift */,
 				BB000001000000000000BB04 /* EpisodeDownloader.swift */,
+				BB000001000000000000BB12 /* CurlFetcher.swift */,
+				BB000001000000000000BB13 /* curl_bridge.c */,
+				BB000001000000000000BB14 /* atomic_stubs.c */,
+				BB000001000000000000BB15 /* atomic_stubs.S */,
 			);
 			name = Networking;
 			path = Networking;
@@ -363,6 +375,10 @@
 				BB000001000000000000BC0E /* NowPlayingVC.swift in Sources */,
 				BB000001000000000000BC10 /* HomeVC.swift in Sources */,
 				BB000001000000000000BC11 /* DownloadsVC.swift in Sources */,
+				BB000001000000000000BC12 /* CurlFetcher.swift in Sources */,
+				BB000001000000000000BC13 /* curl_bridge.c in Sources */,
+				BB000001000000000000BC14 /* atomic_stubs.c in Sources */,
+				BB000001000000000000BC15 /* atomic_stubs.S in Sources */,
 				A34362D62FD764210064ADE1 /* ViewController.swift in Sources */,
 				A34362FF2FD764260064ADE1 /* AppDelegate.swift in Sources */,
 			);
@@ -536,6 +552,10 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/ThirdParty/curl/include";
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/ThirdParty/curl/lib";
+				OTHER_LDFLAGS = "-lcurl -lssl -lcrypto -lz";
+				SWIFT_OBJC_BRIDGING_HEADER = "podcold/podcold-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -559,6 +579,10 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/ThirdParty/curl/include";
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/ThirdParty/curl/lib";
+				OTHER_LDFLAGS = "-lcurl -lssl -lcrypto -lz";
+				SWIFT_OBJC_BRIDGING_HEADER = "podcold/podcold-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
