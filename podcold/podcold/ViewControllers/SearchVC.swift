@@ -1,23 +1,33 @@
 import UIKit
 
 class SearchVC: UIViewController, UISearchBarDelegate, UITableViewDataSource, UITableViewDelegate {
-    private let searchBar  = UISearchBar()
-    private let tableView  = UITableView()
+    private lazy var searchBar  = UISearchBar()
+    private lazy var tableView  = UITableView()
     private var results: [Podcast] = []
+    private var didSetupUI = false
     private var spinner: UIActivityIndicatorView!
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Search"
         view.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.14, alpha: 1)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !didSetupUI else { return }
+        didSetupUI = true
+        title = "Search"
+        let w = UIScreen.main.bounds.width
+        let h = UIScreen.main.bounds.height
 
         searchBar.placeholder = "Search podcasts..."
         searchBar.delegate    = self
         searchBar.barStyle    = .blackOpaque
-        searchBar.frame       = CGRect(x: 0, y: 0, width: view.bounds.width, height: 44)
+        searchBar.frame       = CGRect(x: 0, y: 0, width: w, height: 44)
+        searchBar.autoresizingMask = .flexibleWidth
         view.addSubview(searchBar)
 
-        tableView.frame              = CGRect(x: 0, y: 44, width: view.bounds.width, height: view.bounds.height - 44)
+        tableView.frame              = CGRect(x: 0, y: 44, width: w, height: h - 44)
         tableView.autoresizingMask   = [.flexibleWidth, .flexibleHeight]
         tableView.dataSource         = self
         tableView.delegate           = self
@@ -28,7 +38,7 @@ class SearchVC: UIViewController, UISearchBarDelegate, UITableViewDataSource, UI
         view.addSubview(tableView)
 
         spinner = UIActivityIndicatorView(style: .whiteLarge)
-        spinner.center = view.center
+        spinner.center = CGPoint(x: w / 2, y: h / 2)
         spinner.hidesWhenStopped = true
         view.addSubview(spinner)
     }
@@ -57,11 +67,11 @@ class SearchVC: UIViewController, UISearchBarDelegate, UITableViewDataSource, UI
         cell.backgroundColor       = .clear
         cell.imageView?.image      = nil
         if !p.artworkUrl.isEmpty {
-            HTTPClient.get(url: p.artworkUrl) { data, _ in
-                guard let data = data, let img = UIImage(data: data) else { return }
-                DispatchQueue.main.async {
-                    (tableView.cellForRow(at: indexPath))?.imageView?.image = img
-                }
+            let url = p.artworkUrl
+            AsyncImageView.loadCell(url: url) { [weak tableView] img in
+                guard let c = tableView?.cellForRow(at: indexPath) else { return }
+                c.imageView?.image = img
+                c.setNeedsLayout()
             }
         }
         return cell

@@ -16,14 +16,20 @@ class NowPlayingVC: UIViewController {
     private let speeds: [Float]  = [1.0, 1.5, 2.0, 0.5]
     private var speedIndex       = 0
     private var scrollView: UIScrollView!
+    private var lastDisplayedSecond = -1
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Now Playing"
         view.backgroundColor = UIColor(red: 0.08, green: 0.08, blue: 0.12, alpha: 1)
+        bindPlayer()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard scrollView == nil else { return }
         setupUI()
         refreshFromCurrentEpisode()
-        bindPlayer()
     }
 
     private func setupUI() {
@@ -39,7 +45,6 @@ class NowPlayingVC: UIViewController {
         let artSize: CGFloat = min(w - 40, 240)
         artworkView.frame = CGRect(x: (w - artSize) / 2, y: y, width: artSize, height: artSize)
         artworkView.contentMode = .scaleAspectFill
-        artworkView.clipsToBounds = true
         artworkView.layer.cornerRadius = 8
         artworkView.backgroundColor = UIColor(white: 0.15, alpha: 1)
         scrollView.addSubview(artworkView)
@@ -108,7 +113,6 @@ class NowPlayingVC: UIViewController {
         playPauseBtn.layer.cornerRadius = 35
         playPauseBtn.layer.borderWidth = 2
         playPauseBtn.layer.borderColor = UIColor(white: 0.4, alpha: 1).cgColor
-        playPauseBtn.clipsToBounds = true
         playPauseBtn.addTarget(self, action: #selector(playPauseTapped), for: .touchUpInside)
         scrollView.addSubview(playPauseBtn)
 
@@ -143,12 +147,19 @@ class NowPlayingVC: UIViewController {
 
     private func bindPlayer() {
         AudioPlayer.shared.onProgress = { [weak self] cur, dur in
-            guard let self = self else { return }
+            guard let self = self, self.scrollView != nil else { return }
             self.currentTime = cur
             self.duration = dur
-            if !self.slider.isTracking && dur > 0 { self.slider.value = Float(cur / dur) }
-            self.currentTimeLabel.text = self.fmt(cur)
-            self.remainingLabel.text   = "-\(self.fmt(max(0, dur - cur)))"
+            if !self.slider.isTracking && dur > 0 {
+                let newVal = Float(cur / dur)
+                if self.slider.value != newVal { self.slider.value = newVal }
+            }
+            let s = Int(cur)
+            if s != self.lastDisplayedSecond {
+                self.lastDisplayedSecond = s
+                self.currentTimeLabel.text = self.fmt(cur)
+                self.remainingLabel.text   = "-\(self.fmt(max(0, dur - cur)))"
+            }
         }
         AudioPlayer.shared.onStateChange = { [weak self] in self?.updatePlayPauseBtn() }
         AudioPlayer.shared.onFinish      = { [weak self] in

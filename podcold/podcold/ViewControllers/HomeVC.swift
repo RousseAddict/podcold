@@ -4,6 +4,8 @@ class HomeVC: UIViewController {
     private var scrollView: UIScrollView!
     private var podcasts:       [Podcast] = []
     private var recentEpisodes: [Episode] = []
+    private var builtPodcastUrls: [String] = []
+    private var builtRecentGuids: [String] = []
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -22,6 +24,15 @@ class HomeVC: UIViewController {
         super.viewWillAppear(animated)
         podcasts       = Podcast.loadSubscriptions()
         recentEpisodes = Episode.loadRecents().filter { $0.savedPosition() > 30 }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        let newUrls  = podcasts.map { $0.feedUrl }
+        let newGuids = recentEpisodes.map { $0.guid }
+        guard newUrls != builtPodcastUrls || newGuids != builtRecentGuids else { return }
+        builtPodcastUrls  = newUrls
+        builtRecentGuids  = newGuids
         rebuildLayout()
     }
 
@@ -97,11 +108,12 @@ class HomeVC: UIViewController {
         card.backgroundColor = UIColor(white: 0.15, alpha: 1)
         card.layer.cornerRadius = 8
         card.clipsToBounds = true
+        card.layer.shouldRasterize = true
+        card.layer.rasterizationScale = UIScreen.main.scale
         card.tag = index
 
         let art = AsyncImageView(frame: CGRect(x: 0, y: 0, width: 120, height: 100))
         art.contentMode = .scaleAspectFill
-        art.clipsToBounds = true
         if !episode.artworkUrl.isEmpty { art.load(url: episode.artworkUrl) }
         card.addSubview(art)
 
@@ -136,6 +148,8 @@ class HomeVC: UIViewController {
         art.contentMode = .scaleAspectFill
         art.clipsToBounds = true
         art.layer.cornerRadius = 6
+        art.layer.shouldRasterize = true
+        art.layer.rasterizationScale = UIScreen.main.scale
         art.backgroundColor = UIColor(white: 0.15, alpha: 1)
         let url = podcast.artworkUrl600.isEmpty ? podcast.artworkUrl : podcast.artworkUrl600
         if !url.isEmpty { art.load(url: url) }
@@ -181,7 +195,6 @@ class HomeVC: UIViewController {
         btn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
         btn.backgroundColor = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
         btn.layer.cornerRadius = 17
-        btn.clipsToBounds = true
         btn.addTarget(self, action: #selector(openSearch), for: .touchUpInside)
         v.addSubview(btn)
 

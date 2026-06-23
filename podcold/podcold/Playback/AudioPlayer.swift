@@ -11,6 +11,8 @@ class AudioPlayer: NSObject {
     var onProgress: ((Double, Double) -> Void)?
     var onFinish: (() -> Void)?
     var onStateChange: (() -> Void)?
+    private var progressTick = 0  // counts 1-s ticks; used to throttle writes
+    private static let bgQueue = DispatchQueue(label: "com.podcold.audiobg")
 
     private override init() {
         super.init()
@@ -55,9 +57,14 @@ class AudioPlayer: NSObject {
                 guard let self = self, let item = self.player?.currentItem else { return }
                 let cur = CMTimeGetSeconds(time)
                 let dur = CMTimeGetSeconds(item.duration)
-                self.currentEpisode?.savePosition(cur)
+                self.progressTick += 1
+                // Save position every 5s — avoids UserDefaults plist-flush stalls on main thread
+                if self.progressTick % 5 == 0 { self.currentEpisode?.savePosition(cur) }
                 self.onProgress?(cur, dur.isNaN ? 0 : dur)
-                self.updateNowPlayingElapsed(cur, duration: dur.isNaN ? 0 : dur)
+                // Update lock-screen scrubber every 5s — iOS interpolates elapsed in-between
+                if self.progressTick % 5 == 0 {
+                    self.updateNowPlayingElapsed(cur, duration: dur.isNaN ? 0 : dur)
+                }
         }
 
         // Watch for AVPlayer failure (e.g. untrusted cert not in iOS 6 root store).
@@ -69,8 +76,10 @@ class AudioPlayer: NSObject {
             item.addObserver(self, forKeyPath: "status", options: .new, context: nil)
         }
 
-        updateNowPlaying(episode: episode)
         onStateChange?()
+        DispatchQueue.main.async { [weak self] in
+            self?.updateNowPlaying(episode: episode)
+        }
     }
 
     // Old-style KVO required for iOS 6 — Swift's observe() is iOS 9+
@@ -103,11 +112,13 @@ class AudioPlayer: NSObject {
     }
 
     private func addToRecents(_ episode: Episode) {
-        var recents = Episode.loadRecents()
-        recents.removeAll { $0.guid == episode.guid }
-        recents.insert(episode, at: 0)
-        if recents.count > 8 { recents = Array(recents.prefix(8)) }
-        Episode.saveRecents(recents)
+        AudioPlayer.bgQueue.async {
+            var recents = Episode.loadRecents()
+            recents.removeAll { $0.guid == episode.guid }
+            recents.insert(episode, at: 0)
+            if recents.count > 8 { recents = Array(recents.prefix(8)) }
+            Episode.saveRecents(recents)
+        }
     }
 
     func pause() {
@@ -138,6 +149,7 @@ class AudioPlayer: NSObject {
         player?.pause()
         player = nil
         currentEpisode = nil
+        progressTick = 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
@@ -160,10 +172,15 @@ class AudioPlayer: NSObject {
 
         guard !episode.artworkUrl.isEmpty else { return }
         CurlFetcher.fetchData(url: episode.artworkUrl, timeout: 15) { data in
-            guard let data = data, let image = UIImage(data: data) else { return }
-            var updated = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-            updated[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(image: image)
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = updated
+            guard let data = data else { return }
+            AudioPlayer.bgQueue.async {
+                guard let image = UIImage(data: data) else { return }
+                DispatchQueue.main.async {
+                    var updated = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+                    updated[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(image: image)
+                    MPNowPlayingInfoCenter.default().nowPlayingInfo = updated
+                }
+            }
         }
     }
 

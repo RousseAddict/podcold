@@ -21,6 +21,11 @@ class Podcast: NSObject {
         UserDefaults.standard.set(podcasts.map { $0.toDict() }, forKey: subscriptionsKey)
     }
 
+    static func isSubscribed(feedUrl: String) -> Bool {
+        guard let arr = UserDefaults.standard.array(forKey: subscriptionsKey) as? [[String: Any]] else { return false }
+        return arr.contains { ($0["feedUrl"] as? String) == feedUrl }
+    }
+
     func toDict() -> [String: Any] {
         return ["collectionId": collectionId, "title": title, "author": author,
                 "feedUrl": feedUrl, "artworkUrl": artworkUrl, "artworkUrl600": artworkUrl600, "genre": genre]

@@ -18,7 +18,7 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         title = podcast.title
         view.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.14, alpha: 1)
 
-        let isSubscribed = Podcast.loadSubscriptions().contains { $0.feedUrl == podcast.feedUrl }
+        let isSubscribed = Podcast.isSubscribed(feedUrl: podcast.feedUrl)
         subscribeBtn = UIBarButtonItem(title: isSubscribed ? "Subscribed" : "Subscribe",
                                        style: .plain, target: self, action: #selector(toggleSubscribe))
         navigationItem.rightBarButtonItem = subscribeBtn
@@ -111,10 +111,11 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         cell.textLabel?.numberOfLines = 2
         cell.textLabel?.backgroundColor = .clear
 
+        let localFile = ep.localPath()
         var detail = ep.pubDate.isEmpty ? ep.duration : "\(ep.pubDate)  \(ep.duration)"
-        if ep.localPath() != nil { detail = detail.isEmpty ? "Offline" : "\(detail) · Offline" }
+        if localFile != nil { detail = detail.isEmpty ? "Offline" : "\(detail) · Offline" }
         cell.detailTextLabel?.text      = detail
-        cell.detailTextLabel?.textColor = ep.localPath() != nil
+        cell.detailTextLabel?.textColor = localFile != nil
             ? UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
             : UIColor(white: 0.55, alpha: 1)
         cell.detailTextLabel?.backgroundColor = .clear

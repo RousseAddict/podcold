@@ -3,6 +3,7 @@ import UIKit
 class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate {
     private let tableView = UITableView()
     private var episodes: [Episode] = []
+    private var episodeSizes: [String: String] = [:]
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -22,7 +23,11 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        episodes = Episode.loadDownloads()
+        let loaded = Episode.loadDownloads()
+        episodes = loaded
+        // stat() on flash is <0.1ms per file — synchronous precompute avoids double reloadData
+        episodeSizes = [:]
+        for ep in loaded { episodeSizes[ep.guid] = ep.fileSizeString() }
         tableView.reloadData()
         if episodes.isEmpty { showEmptyState() } else { hideEmptyState() }
     }
@@ -65,7 +70,7 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
         cell.textLabel?.numberOfLines = 2
         cell.textLabel?.backgroundColor = .clear
 
-        let size = ep.fileSizeString()
+        let size = episodeSizes[ep.guid] ?? ""
         let detail = [ep.podcastTitle, ep.duration, size].filter { !$0.isEmpty }.joined(separator: " · ")
         cell.detailTextLabel?.text      = detail
         cell.detailTextLabel?.textColor = UIColor(white: 0.5, alpha: 1)
@@ -77,11 +82,10 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
         cell.imageView?.image = nil
         if !ep.artworkUrl.isEmpty {
             let url = ep.artworkUrl
-            HTTPClient.get(url: url) { data, _ in
-                guard let data = data, let img = UIImage(data: data) else { return }
-                DispatchQueue.main.async {
-                    if let c = tableView.cellForRow(at: indexPath) { c.imageView?.image = img }
-                }
+            AsyncImageView.loadCell(url: url) { [weak tableView] img in
+                guard let c = tableView?.cellForRow(at: indexPath) else { return }
+                c.imageView?.image = img
+                c.setNeedsLayout()
             }
         }
         return cell

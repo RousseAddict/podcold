@@ -10,14 +10,18 @@ class iTunesAPI {
 
         var done = false
         func handle(_ data: Data?) {
-            guard !done else { return }
-            guard let data = data,
-                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let results = root["results"] as? [[String: Any]] else { return }
-            let podcasts = results.compactMap { iTunesAPI.podcastFrom(dict: $0) }
-            guard !podcasts.isEmpty else { return }
-            done = true
-            completion(podcasts)
+            guard !done, let data = data else { return }
+            DispatchQueue(label: "com.podcold.misc").async {
+                guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let results = root["results"] as? [[String: Any]] else { return }
+                let podcasts = results.compactMap { iTunesAPI.podcastFrom(dict: $0) }
+                guard !podcasts.isEmpty else { return }
+                DispatchQueue.main.async {
+                    guard !done else { return }
+                    done = true
+                    completion(podcasts)
+                }
+            }
         }
 
         HTTPClient.get(url: httpUrl)  { data, _ in handle(data) }

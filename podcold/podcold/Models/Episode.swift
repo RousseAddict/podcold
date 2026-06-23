@@ -21,10 +21,12 @@ class Episode: NSObject {
         let path = localPathForWriting()
         return FileManager.default.fileExists(atPath: path) ? path : nil
     }
+    private static let docsDir = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first!
+    private static let nonAlphanumerics = CharacterSet.alphanumerics.inverted
+
     func localPathForWriting() -> String {
-        let docs = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first!
-        let safe = guid.components(separatedBy: CharacterSet.alphanumerics.inverted).joined(separator: "_")
-        return (docs as NSString).appendingPathComponent("\(safe).mp3")
+        let safe = guid.components(separatedBy: Episode.nonAlphanumerics).joined(separator: "_")
+        return (Episode.docsDir as NSString).appendingPathComponent("\(safe).mp3")
     }
 
     func fileSizeString() -> String {

@@ -42,6 +42,13 @@ private class CurlDownloadBox {
 
 class CurlFetcher {
     private static var active: [CurlFetcher] = []
+    // Shared serial queue — serial prevents concurrent curl_easy_init calls before global init.
+    // curl_global_init is NOT thread-safe; concurrent implicit calls via curl_easy_init crash.
+    private static let curlQueue = DispatchQueue(label: "com.podcold.curl")
+    // Thread-safe once-init: Swift static let uses dispatch_once.
+    // First background thread to access this calls curl_global_init exactly once.
+    // NOT called from main thread (crashes in AppDelegate — OpenSSL threading issue).
+    private static let curlGlobalInit: Bool = { curl_bridge_global_init(); return true }()
 
     // Call once at app startup (AppDelegate)
     static func globalInit() {
@@ -52,7 +59,7 @@ class CurlFetcher {
     static func fetchData(url: String, timeout: Int = 30, completion: @escaping (Data?) -> Void) {
         let fetcher = CurlFetcher()
         retain(fetcher)
-        DispatchQueue(label: "com.podcold.curl").async {
+        CurlFetcher.curlQueue.async {
             let data = fetcher.syncFetchData(url: url, timeout: timeout)
             DispatchQueue.main.async {
                 release(fetcher)
@@ -68,7 +75,7 @@ class CurlFetcher {
                                 completion: @escaping (Bool) -> Void) {
         let fetcher = CurlFetcher()
         retain(fetcher)
-        DispatchQueue(label: "com.podcold.curl").async {
+        CurlFetcher.curlQueue.async {
             let ok = fetcher.syncDownload(url: url, outputPath: outputPath, progress: progress)
             DispatchQueue.main.async {
                 release(fetcher)
@@ -94,6 +101,7 @@ class CurlFetcher {
     // MARK: - Synchronous implementations (run on background thread)
 
     private func syncFetchData(url: String, timeout: Int) -> Data? {
+        _ = CurlFetcher.curlGlobalInit  // ensures curl_global_init ran once before any easy_init
         let h = curl_bridge_init()
         defer { curl_bridge_cleanup(h) }
 
@@ -114,6 +122,7 @@ class CurlFetcher {
     }
 
     private func syncDownload(url: String, outputPath: String, progress: ((Float) -> Void)?) -> Bool {
+        _ = CurlFetcher.curlGlobalInit  // same as syncFetchData
         let h = curl_bridge_init()
         defer { curl_bridge_cleanup(h) }
 

@@ -28,6 +28,8 @@ class EpisodeDetailVC: UIViewController {
         artwork.contentMode = .scaleAspectFill
         artwork.clipsToBounds = true
         artwork.layer.cornerRadius = 8
+        artwork.layer.shouldRasterize = true
+        artwork.layer.rasterizationScale = UIScreen.main.scale
         artwork.backgroundColor = UIColor(white: 0.15, alpha: 1)
         let imgUrl = episode.artworkUrl.isEmpty ? podcast.artworkUrl600 : episode.artworkUrl
         if !imgUrl.isEmpty { artwork.load(url: imgUrl) }
@@ -59,7 +61,6 @@ class EpisodeDetailVC: UIViewController {
         playBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 17)
         playBtn.backgroundColor = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
         playBtn.layer.cornerRadius = 22
-        playBtn.clipsToBounds = true
         playBtn.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
         scrollView.addSubview(playBtn)
         y += 52
@@ -73,7 +74,6 @@ class EpisodeDetailVC: UIViewController {
         downloadBtn.layer.cornerRadius = 17
         downloadBtn.layer.borderWidth = 1
         downloadBtn.titleLabel?.font = UIFont.systemFont(ofSize: 14)
-        downloadBtn.clipsToBounds = true
         downloadBtn.addTarget(self, action: #selector(downloadTapped), for: .touchUpInside)
         scrollView.addSubview(downloadBtn)
 
@@ -85,7 +85,6 @@ class EpisodeDetailVC: UIViewController {
         removeBtn.layer.borderWidth = 1
         removeBtn.layer.borderColor = UIColor(red: 0.85, green: 0.25, blue: 0.25, alpha: 1).cgColor
         removeBtn.titleLabel?.font = UIFont.systemFont(ofSize: 14)
-        removeBtn.clipsToBounds = true
         removeBtn.addTarget(self, action: #selector(removeTapped), for: .touchUpInside)
         scrollView.addSubview(removeBtn)
 
@@ -99,15 +98,25 @@ class EpisodeDetailVC: UIViewController {
             y += 12
 
             let descLabel = UILabel()
-            descLabel.text = stripHTML(episode.summary)
             descLabel.textColor = UIColor(white: 0.75, alpha: 1)
             descLabel.backgroundColor = .clear
             descLabel.font = UIFont.systemFont(ofSize: 13)
             descLabel.numberOfLines = 0
             descLabel.frame = CGRect(x: 20, y: y, width: w - 40, height: 0)
-            descLabel.sizeToFit()
             scrollView.addSubview(descLabel)
-            y += descLabel.frame.height + 16
+
+            let labelY = y
+            let capturedW = w
+            let summary = episode.summary
+            DispatchQueue(label: "com.podcold.misc").async {
+                let text = EpisodeDetailVC.stripHTML(summary)
+                DispatchQueue.main.async { [weak descLabel, weak scrollView] in
+                    guard let lbl = descLabel, let sv = scrollView else { return }
+                    lbl.text = text
+                    lbl.sizeToFit()
+                    sv.contentSize = CGSize(width: capturedW, height: labelY + lbl.frame.height + 16 + 70)
+                }
+            }
         }
 
         scrollView.contentSize = CGSize(width: w, height: y + 70)
@@ -151,7 +160,7 @@ class EpisodeDetailVC: UIViewController {
         updateDownloadButton(progress: nil)
     }
 
-    private func stripHTML(_ s: String) -> String {
+    private static func stripHTML(_ s: String) -> String {
         // Remove tags
         var out = ""
         var inTag = false

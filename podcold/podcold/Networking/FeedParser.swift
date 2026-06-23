@@ -24,10 +24,11 @@ class FeedParser: NSObject, XMLParserDelegate {
 
         func handle(_ data: Data?) {
             guard !done, let data = data else { return }
-            let eps = FeedParser.runXML(data: data, podcastTitle: podcastTitle)
-            guard !eps.isEmpty else { return }
-            done = true
-            completion(eps)
+            done = true  // block second request now, before leaving main thread
+            DispatchQueue(label: "com.podcold.feedparser").async {
+                let eps = FeedParser.runXML(data: data, podcastTitle: podcastTitle)
+                DispatchQueue.main.async { completion(eps) }
+            }
         }
 
         CurlFetcher.fetchData(url: feedUrl, timeout: 30) { data in handle(data) }
