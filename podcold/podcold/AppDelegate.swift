@@ -1,4 +1,5 @@
 import UIKit
+import MediaPlayer
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -21,5 +22,29 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         window?.addSubview(miniBar)
 
         return true
+    }
+
+    // MARK: - Remote control events (lock screen / headphone controls, iOS 6+)
+
+    override var canBecomeFirstResponder: Bool { return true }
+
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        becomeFirstResponder()
+        application.beginReceivingRemoteControlEvents()
+    }
+
+    override func remoteControlReceived(with event: UIEvent?) {
+        guard let event = event, event.type == .remoteControl else { return }
+        let ap = AudioPlayer.shared
+        switch event.subtype {
+        case .remoteControlPlay:
+            ap.resume()
+        case .remoteControlPause:
+            ap.pause()
+        case .remoteControlTogglePlayPause:
+            ap.isPlaying ? ap.pause() : ap.resume()
+        default:
+            break
+        }
     }
 }

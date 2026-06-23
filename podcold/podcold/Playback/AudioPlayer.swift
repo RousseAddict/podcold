@@ -1,4 +1,5 @@
 import AVFoundation
+import MediaPlayer
 
 class AudioPlayer: NSObject {
     static let shared = AudioPlayer()
@@ -56,17 +57,19 @@ class AudioPlayer: NSObject {
                 let dur = CMTimeGetSeconds(item.duration)
                 self.currentEpisode?.savePosition(cur)
                 self.onProgress?(cur, dur.isNaN ? 0 : dur)
+                self.updateNowPlayingElapsed(cur, duration: dur.isNaN ? 0 : dur)
         }
 
         // Watch for AVPlayer failure (e.g. untrusted cert not in iOS 6 root store).
         // AVPlayer has its own TLS stack — our NSURLConnection SSL bypass doesn't apply to it.
-        // On failure, fall back to downloading via EpisodeDownloader (which uses NSURLFetcher
-        // with the SSL bypass) and replay from the local file once complete.
+        // On failure, fall back to downloading via EpisodeDownloader (which uses CurlFetcher)
+        // and replay from the local file once complete.
         if watchForFailure {
             observedItem = item
             item.addObserver(self, forKeyPath: "status", options: .new, context: nil)
         }
 
+        updateNowPlaying(episode: episode)
         onStateChange?()
     }
 
@@ -86,16 +89,14 @@ class AudioPlayer: NSObject {
         observedItem = nil
     }
 
-    // AVPlayer failed to stream (likely untrusted CA on iOS 6) — download via NSURLFetcher then replay
+    // AVPlayer failed to stream — download via CurlFetcher then replay from local file
     private func fallbackToDownload(episode: Episode) {
-        // Keep currentEpisode set so UI knows something is loading
         EpisodeDownloader.download(
             episode: episode,
             progress: { [weak self] _ in self?.onStateChange?() },
             completion: { [weak self] success in
                 guard let self = self, success,
                       self.currentEpisode?.guid == episode.guid else { return }
-                // Re-play — localPath() now exists, startPlayer will use file://
                 self.play(episode: episode)
             }
         )
@@ -109,13 +110,24 @@ class AudioPlayer: NSObject {
         Episode.saveRecents(recents)
     }
 
-    func pause()  { player?.pause(); onStateChange?() }
-    func resume() { player?.play();  onStateChange?() }
+    func pause() {
+        player?.pause()
+        MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
+        onStateChange?()
+    }
+
+    func resume() {
+        player?.play()
+        MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
+        onStateChange?()
+    }
+
     var isPlaying: Bool { return (player?.rate ?? 0) != 0 }
 
     func seek(to seconds: Double) {
         player?.seek(to: CMTimeMakeWithSeconds(seconds, preferredTimescale: 1))
     }
+
     func setSpeed(_ rate: Float) {
         if isPlaying { player?.rate = rate }
     }
@@ -126,11 +138,40 @@ class AudioPlayer: NSObject {
         player?.pause()
         player = nil
         currentEpisode = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
     @objc private func didFinish() {
         currentEpisode?.savePosition(0)
         onFinish?()
         onStateChange?()
+    }
+
+    // MARK: - Now Playing Info (lock screen + control centre)
+
+    private func updateNowPlaying(episode: Episode) {
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: episode.title,
+            MPMediaItemPropertyArtist: episode.podcastTitle,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: episode.savedPosition(),
+            MPNowPlayingInfoPropertyPlaybackRate: 1.0
+        ]
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+
+        guard !episode.artworkUrl.isEmpty else { return }
+        CurlFetcher.fetchData(url: episode.artworkUrl, timeout: 15) { data in
+            guard let data = data, let image = UIImage(data: data) else { return }
+            var updated = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+            updated[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(image: image)
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = updated
+        }
+    }
+
+    private func updateNowPlayingElapsed(_ elapsed: Double, duration: Double) {
+        guard MPNowPlayingInfoCenter.default().nowPlayingInfo != nil else { return }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
+        if duration > 0 {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyPlaybackDuration] = duration
+        }
     }
 }
