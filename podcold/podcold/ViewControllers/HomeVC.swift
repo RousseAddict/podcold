@@ -11,8 +11,9 @@ class HomeVC: UIViewController {
         super.viewDidLoad()
         title = "podcold"
         view.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.14, alpha: 1)
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .search, target: self, action: #selector(openSearch))
+        let searchBtn   = UIBarButtonItem(barButtonSystemItem: .search, target: self, action: #selector(openSearch))
+        let settingsBtn = UIBarButtonItem(image: HomeVC.gearIcon(), style: .plain, target: self, action: #selector(openSettings))
+        navigationItem.rightBarButtonItems = [searchBtn, settingsBtn]
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: "Downloads", style: .plain, target: self, action: #selector(openDownloads))
         scrollView = UIScrollView(frame: view.bounds)
@@ -223,6 +224,55 @@ class HomeVC: UIViewController {
 
     @objc private func openSearch() {
         navigationController?.pushViewController(SearchVC(), animated: true)
+    }
+
+    // MARK: - Gear icon (programmatic — Unicode gear char falls back to emoji on iOS 6)
+
+    private static func gearIcon() -> UIImage {
+        let pt: CGFloat = 22
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: pt, height: pt), false, UIScreen.main.scale)
+        guard let ctx = UIGraphicsGetCurrentContext() else {
+            UIGraphicsEndImageContext()
+            return UIImage()
+        }
+        UIColor.white.setFill()
+        let cx = pt / 2, cy = pt / 2
+        let outerR: CGFloat = 9.0   // ring outer edge
+        let holeR:  CGFloat = 3.2   // centre hole
+        let nTeeth = 6
+        let toothW: CGFloat = 3.4
+        let toothH: CGFloat = 3.6
+
+        // Draw ring (donut) using even-odd fill rule so centre is hollow
+        let ring = UIBezierPath()
+        ring.addArc(withCenter: CGPoint(x: cx, y: cy), radius: outerR,
+                    startAngle: 0, endAngle: .pi * 2, clockwise: true)
+        ring.addArc(withCenter: CGPoint(x: cx, y: cy), radius: holeR,
+                    startAngle: 0, endAngle: .pi * 2, clockwise: false)
+        ring.usesEvenOddFillRule = true
+        ring.fill()
+
+        // Draw teeth — each is a small rect extending outward, overlapping ring by 2pt
+        for i in 0..<nTeeth {
+            let angle = CGFloat(i) * 2 * .pi / CGFloat(nTeeth)
+            ctx.saveGState()
+            ctx.translateBy(x: cx, y: cy)
+            ctx.rotate(by: angle)
+            ctx.fill(CGRect(x: -toothW / 2, y: -(outerR + toothH), width: toothW, height: toothH + 2))
+            ctx.restoreGState()
+        }
+
+        // Re-punch centre hole clean (teeth may have overlapped it)
+        ctx.setBlendMode(.clear)
+        ctx.fillEllipse(in: CGRect(x: cx - holeR, y: cy - holeR, width: holeR * 2, height: holeR * 2))
+
+        let img = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
+        UIGraphicsEndImageContext()
+        return img
+    }
+
+    @objc private func openSettings() {
+        navigationController?.pushViewController(SettingsVC(), animated: true)
     }
 
     @objc private func openDownloads() {
