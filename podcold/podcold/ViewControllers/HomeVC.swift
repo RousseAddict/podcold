@@ -12,7 +12,7 @@ class HomeVC: UIViewController {
         title = "podcold"
         view.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.14, alpha: 1)
         let searchBtn   = UIBarButtonItem(barButtonSystemItem: .search, target: self, action: #selector(openSearch))
-        let settingsBtn = UIBarButtonItem(image: HomeVC.gearIcon(), style: .plain, target: self, action: #selector(openSettings))
+        let settingsBtn = UIBarButtonItem(image: UIImage(named: "gear-icon"), style: .plain, target: self, action: #selector(openSettings))
         navigationItem.rightBarButtonItems = [searchBtn, settingsBtn]
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: "Downloads", style: .plain, target: self, action: #selector(openDownloads))
@@ -136,8 +136,28 @@ class HomeVC: UIViewController {
             card.addSubview(bar)
         }
 
-        let tap = UITapGestureRecognizer(target: self, action: #selector(episodeTapped(_:)))
-        card.addGestureRecognizer(tap)
+        // Tap-to-open target — transparent button covering the card (avoids
+        // UITapGestureRecognizer + button conflict, same convention as MiniPlayerBar)
+        let openBtn = UIButton(type: .custom)
+        openBtn.frame = CGRect(x: 0, y: 0, width: 120, height: 150)
+        openBtn.backgroundColor = .clear
+        openBtn.tag = index
+        openBtn.addTarget(self, action: #selector(episodeTapped(_:)), for: .touchUpInside)
+        card.addSubview(openBtn)
+
+        // Mark-as-played button — top-right corner, for episodes you don't want to finish
+        let doneBtn = UIButton(type: .custom)
+        doneBtn.frame = CGRect(x: 120 - 44 - 4, y: 4, width: 44, height: 20)
+        doneBtn.backgroundColor = UIColor(white: 0, alpha: 0.55)
+        doneBtn.layer.cornerRadius = 4
+        doneBtn.setTitle("Done", for: .normal)
+        doneBtn.setTitleColor(.white, for: .normal)
+        doneBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 9)
+        doneBtn.tag = index
+        doneBtn.addTarget(self, action: #selector(markPlayedTapped(_:)), for: .touchUpInside)
+        card.addSubview(doneBtn)
+        card.bringSubviewToFront(doneBtn)
+
         return card
     }
 
@@ -204,9 +224,8 @@ class HomeVC: UIViewController {
 
     // MARK: - Actions
 
-    @objc private func episodeTapped(_ tap: UITapGestureRecognizer) {
-        guard let v = tap.view else { return }
-        let ep = recentEpisodes[v.tag]
+    @objc private func episodeTapped(_ sender: UIButton) {
+        let ep = recentEpisodes[sender.tag]
         let podcast = podcasts.first { $0.title == ep.podcastTitle } ?? {
             let p = Podcast(); p.title = ep.podcastTitle
             p.artworkUrl600 = ep.artworkUrl; p.artworkUrl = ep.artworkUrl
@@ -214,6 +233,14 @@ class HomeVC: UIViewController {
         }()
         navigationController?.pushViewController(
             EpisodeDetailVC(episode: ep, podcast: podcast), animated: true)
+    }
+
+    @objc private func markPlayedTapped(_ sender: UIButton) {
+        guard sender.tag < recentEpisodes.count else { return }
+        recentEpisodes[sender.tag].savePosition(0)
+        recentEpisodes.remove(at: sender.tag)
+        builtRecentGuids = recentEpisodes.map { $0.guid }
+        rebuildLayout()
     }
 
     @objc private func podcastTapped(_ tap: UITapGestureRecognizer) {
@@ -224,51 +251,6 @@ class HomeVC: UIViewController {
 
     @objc private func openSearch() {
         navigationController?.pushViewController(SearchVC(), animated: true)
-    }
-
-    // MARK: - Gear icon (programmatic — Unicode gear char falls back to emoji on iOS 6)
-
-    private static func gearIcon() -> UIImage {
-        let pt: CGFloat = 22
-        UIGraphicsBeginImageContextWithOptions(CGSize(width: pt, height: pt), false, UIScreen.main.scale)
-        guard let ctx = UIGraphicsGetCurrentContext() else {
-            UIGraphicsEndImageContext()
-            return UIImage()
-        }
-        UIColor.white.setFill()
-        let cx = pt / 2, cy = pt / 2
-        let outerR: CGFloat = 9.0   // ring outer edge
-        let holeR:  CGFloat = 3.2   // centre hole
-        let nTeeth = 6
-        let toothW: CGFloat = 3.4
-        let toothH: CGFloat = 3.6
-
-        // Draw ring (donut) using even-odd fill rule so centre is hollow
-        let ring = UIBezierPath()
-        ring.addArc(withCenter: CGPoint(x: cx, y: cy), radius: outerR,
-                    startAngle: 0, endAngle: .pi * 2, clockwise: true)
-        ring.addArc(withCenter: CGPoint(x: cx, y: cy), radius: holeR,
-                    startAngle: 0, endAngle: .pi * 2, clockwise: false)
-        ring.usesEvenOddFillRule = true
-        ring.fill()
-
-        // Draw teeth — each is a small rect extending outward, overlapping ring by 2pt
-        for i in 0..<nTeeth {
-            let angle = CGFloat(i) * 2 * .pi / CGFloat(nTeeth)
-            ctx.saveGState()
-            ctx.translateBy(x: cx, y: cy)
-            ctx.rotate(by: angle)
-            ctx.fill(CGRect(x: -toothW / 2, y: -(outerR + toothH), width: toothW, height: toothH + 2))
-            ctx.restoreGState()
-        }
-
-        // Re-punch centre hole clean (teeth may have overlapped it)
-        ctx.setBlendMode(.clear)
-        ctx.fillEllipse(in: CGRect(x: cx - holeR, y: cy - holeR, width: holeR * 2, height: holeR * 2))
-
-        let img = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
-        UIGraphicsEndImageContext()
-        return img
     }
 
     @objc private func openSettings() {
