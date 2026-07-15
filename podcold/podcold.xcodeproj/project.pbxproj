@@ -12,6 +12,12 @@
 		A34363012FD764270064ADE1 /* Default-568h@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = A34363002FD764270064ADE1 /* Default-568h@2x.png */; };
 		BB000001000000000000BC18 /* gear-icon.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB18 /* gear-icon.png */; };
 		BB000001000000000000BC19 /* gear-icon@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB19 /* gear-icon@2x.png */; };
+		BB000001000000000000BC1A /* play.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB1A /* play.png */; };
+		BB000001000000000000BC1B /* play@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB1B /* play@2x.png */; };
+		BB000001000000000000BC1C /* pause.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB1C /* pause.png */; };
+		BB000001000000000000BC1D /* pause@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB1D /* pause@2x.png */; };
+		BB000001000000000000BC1E /* close.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB1E /* close.png */; };
+		BB000001000000000000BC1F /* close@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB1F /* close@2x.png */; };
 		A34362E22FD764250064ADE1 /* podcoldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34362E12FD764250064ADE1 /* podcoldTests.swift */; };
 		A34362EC2FD764250064ADE1 /* podcoldUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34362EB2FD764250064ADE1 /* podcoldUITests.swift */; };
 		A34362EE2FD764250064ADE1 /* podcoldUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34362ED2FD764250064ADE1 /* podcoldUITestsLaunchTests.swift */; };
@@ -68,6 +74,12 @@
 		A34363002FD764270064ADE1 /* Default-568h@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Default-568h@2x.png"; sourceTree = "<group>"; };
 		BB000001000000000000BB18 /* gear-icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "gear-icon.png"; sourceTree = "<group>"; };
 		BB000001000000000000BB19 /* gear-icon@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "gear-icon@2x.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB1A /* play.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "play.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB1B /* play@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "play@2x.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB1C /* pause.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "pause.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB1D /* pause@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "pause@2x.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB1E /* close.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "close.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB1F /* close@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "close@2x.png"; sourceTree = "<group>"; };
 		A34362D72FD764250064ADE1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A34362DD2FD764250064ADE1 /* podcoldTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = podcoldTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A34362E12FD764250064ADE1 /* podcoldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = podcoldTests.swift; sourceTree = "<group>"; };
@@ -154,6 +166,12 @@
 				A34363002FD764270064ADE1 /* Default-568h@2x.png */,
 				BB000001000000000000BB18 /* gear-icon.png */,
 				BB000001000000000000BB19 /* gear-icon@2x.png */,
+				BB000001000000000000BB1A /* play.png */,
+				BB000001000000000000BB1B /* play@2x.png */,
+				BB000001000000000000BB1C /* pause.png */,
+				BB000001000000000000BB1D /* pause@2x.png */,
+				BB000001000000000000BB1E /* close.png */,
+				BB000001000000000000BB1F /* close@2x.png */,
 				A34362D72FD764250064ADE1 /* Assets.xcassets */,
 			);
 			path = podcold;
@@ -348,6 +366,12 @@
 				A34363012FD764270064ADE1 /* Default-568h@2x.png in Resources */,
 				BB000001000000000000BC18 /* gear-icon.png in Resources */,
 				BB000001000000000000BC19 /* gear-icon@2x.png in Resources */,
+				BB000001000000000000BC1A /* play.png in Resources */,
+				BB000001000000000000BC1B /* play@2x.png in Resources */,
+				BB000001000000000000BC1C /* pause.png in Resources */,
+				BB000001000000000000BC1D /* pause@2x.png in Resources */,
+				BB000001000000000000BC1E /* close.png in Resources */,
+				BB000001000000000000BC1F /* close@2x.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -557,8 +581,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -585,8 +609,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

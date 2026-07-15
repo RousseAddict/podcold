@@ -25,21 +25,16 @@ class MiniPlayerBar: UIView {
         // Close button — rightmost, stops playback entirely
         closeBtn.frame = CGRect(x: bounds.width - 40, y: 10, width: 36, height: 40)
         closeBtn.autoresizingMask = .flexibleLeftMargin
-        closeBtn.setTitle("x", for: .normal)
-        closeBtn.setTitleColor(UIColor(white: 0.45, alpha: 1), for: .normal)
-        closeBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
+        closeBtn.setImage(UIImage(named: "close"), for: .normal)
         closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         addSubview(closeBtn)
 
         // Play/pause button — left of close
         playPauseBtn.frame = CGRect(x: bounds.width - 80, y: 10, width: 36, height: 40)
         playPauseBtn.autoresizingMask = .flexibleLeftMargin
-        // "||" = pause (shown while playing), triangle = play (shown while paused)
-        playPauseBtn.setTitle("||", for: .normal)
-        playPauseBtn.setTitle(">", for: .selected)
-        playPauseBtn.setTitleColor(.white, for: .normal)
-        playPauseBtn.setTitleColor(.white, for: .selected)
-        playPauseBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
+        // pause shown while playing, play shown while paused
+        playPauseBtn.setImage(UIImage(named: "pause"), for: .normal)
+        playPauseBtn.setImage(UIImage(named: "play"), for: .selected)
         playPauseBtn.addTarget(self, action: #selector(playPauseTapped), for: .touchUpInside)
         addSubview(playPauseBtn)
 

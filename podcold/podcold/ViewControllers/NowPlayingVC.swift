@@ -105,11 +105,8 @@ class NowPlayingVC: UIViewController {
         scrollView.addSubview(skipBackBtn)
 
         playPauseBtn.frame = CGRect(x: (w - 70) / 2, y: ctrlY, width: 70, height: ctrlH)
-        playPauseBtn.setTitle("||", for: .normal)
-        playPauseBtn.setTitle(">", for: .selected)
-        playPauseBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 22)
-        playPauseBtn.setTitleColor(.white, for: .normal)
-        playPauseBtn.setTitleColor(.white, for: .selected)
+        playPauseBtn.setImage(UIImage(named: "pause"), for: .normal)
+        playPauseBtn.setImage(UIImage(named: "play"), for: .selected)
         playPauseBtn.layer.cornerRadius = 35
         playPauseBtn.layer.borderWidth = 2
         playPauseBtn.layer.borderColor = UIColor(white: 0.4, alpha: 1).cgColor
