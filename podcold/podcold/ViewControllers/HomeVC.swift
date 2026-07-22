@@ -4,8 +4,10 @@ class HomeVC: UIViewController {
     private var scrollView: UIScrollView!
     private var podcasts:       [Podcast] = []
     private var recentEpisodes: [Episode] = []
+    private var upNext:         [(Podcast, Episode)] = []
     private var builtPodcastUrls: [String] = []
     private var builtRecentGuids: [String] = []
+    private var builtUpNextGuids: [String] = []
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -25,15 +27,29 @@ class HomeVC: UIViewController {
         super.viewWillAppear(animated)
         podcasts       = Podcast.loadSubscriptions()
         recentEpisodes = Episode.loadRecents().filter { $0.savedPosition() > 30 }
+
+        let inProgressGuids = Set(recentEpisodes.map { $0.guid })
+        upNext = UpNextManager.shared.cachedUpNext(podcasts: podcasts, inProgressGuids: inProgressGuids)
+        UpNextManager.shared.onUpdate = { [weak self] in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                self.upNext = UpNextManager.shared.cachedUpNext(podcasts: self.podcasts, inProgressGuids: inProgressGuids)
+                self.builtUpNextGuids = self.upNext.map { $0.1.guid }
+                self.rebuildLayout()
+            }
+        }
+        UpNextManager.shared.refreshStale(podcasts: podcasts, inProgressGuids: inProgressGuids)
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        let newUrls  = podcasts.map { $0.feedUrl }
-        let newGuids = recentEpisodes.map { $0.guid }
-        guard newUrls != builtPodcastUrls || newGuids != builtRecentGuids else { return }
+        let newUrls   = podcasts.map { $0.feedUrl }
+        let newGuids  = recentEpisodes.map { $0.guid }
+        let newUpNext = upNext.map { $0.1.guid }
+        guard newUrls != builtPodcastUrls || newGuids != builtRecentGuids || newUpNext != builtUpNextGuids else { return }
         builtPodcastUrls  = newUrls
         builtRecentGuids  = newGuids
+        builtUpNextGuids  = newUpNext
         rebuildLayout()
     }
 
@@ -55,6 +71,26 @@ class HomeVC: UIViewController {
             var cx: CGFloat = 12
             for (i, ep) in recentEpisodes.enumerated() {
                 let card = episodeCard(ep, index: i)
+                card.frame = CGRect(x: cx, y: 4, width: 120, height: 150)
+                strip.addSubview(card)
+                cx += 130
+            }
+            strip.contentSize = CGSize(width: cx + 12, height: stripH)
+            scrollView.addSubview(strip)
+            y += stripH + 16
+        }
+
+        if !upNext.isEmpty {
+            scrollView.addSubview(sectionHeader("New Episodes", y: y, w: w))
+            y += 34
+
+            let stripH: CGFloat = 158
+            let strip = UIScrollView(frame: CGRect(x: 0, y: y, width: w, height: stripH))
+            strip.showsHorizontalScrollIndicator = false
+            strip.showsVerticalScrollIndicator   = false
+            var cx: CGFloat = 12
+            for (i, pair) in upNext.enumerated() {
+                let card = upNextCard(pair.1, podcast: pair.0, index: i)
                 card.frame = CGRect(x: cx, y: 4, width: 120, height: 150)
                 strip.addSubview(card)
                 cx += 130
@@ -161,6 +197,52 @@ class HomeVC: UIViewController {
         return card
     }
 
+    private func upNextCard(_ episode: Episode, podcast: Podcast, index: Int) -> UIView {
+        let card = UIView()
+        card.backgroundColor = UIColor(white: 0.15, alpha: 1)
+        card.layer.cornerRadius = 8
+        card.clipsToBounds = true
+        card.layer.shouldRasterize = true
+        card.layer.rasterizationScale = UIScreen.main.scale
+        card.tag = index
+
+        let art = AsyncImageView(frame: CGRect(x: 0, y: 0, width: 120, height: 100))
+        art.contentMode = .scaleAspectFill
+        let artUrl = episode.artworkUrl.isEmpty ? podcast.artworkUrl600 : episode.artworkUrl
+        if !artUrl.isEmpty { art.load(url: artUrl) }
+        card.addSubview(art)
+
+        let lbl = UILabel(frame: CGRect(x: 6, y: 102, width: 108, height: 42))
+        lbl.text = episode.title
+        lbl.textColor = .white
+        lbl.backgroundColor = .clear
+        lbl.font = UIFont.systemFont(ofSize: 10)
+        lbl.numberOfLines = 3
+        card.addSubview(lbl)
+
+        let openBtn = UIButton(type: .custom)
+        openBtn.frame = CGRect(x: 0, y: 0, width: 120, height: 150)
+        openBtn.backgroundColor = .clear
+        openBtn.tag = index
+        openBtn.addTarget(self, action: #selector(upNextTapped(_:)), for: .touchUpInside)
+        card.addSubview(openBtn)
+
+        // Mark-as-played button — lets the user dismiss an episode without playing it
+        let doneBtn = UIButton(type: .custom)
+        doneBtn.frame = CGRect(x: 120 - 44 - 4, y: 4, width: 44, height: 20)
+        doneBtn.backgroundColor = UIColor(white: 0, alpha: 0.55)
+        doneBtn.layer.cornerRadius = 4
+        doneBtn.setTitle("Done", for: .normal)
+        doneBtn.setTitleColor(.white, for: .normal)
+        doneBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 9)
+        doneBtn.tag = index
+        doneBtn.addTarget(self, action: #selector(upNextDoneTapped(_:)), for: .touchUpInside)
+        card.addSubview(doneBtn)
+        card.bringSubviewToFront(doneBtn)
+
+        return card
+    }
+
     private func podcastCell(_ podcast: Podcast, index: Int, w: CGFloat, h: CGFloat) -> UIView {
         let cell = UIView()
         cell.tag = index
@@ -240,6 +322,23 @@ class HomeVC: UIViewController {
         recentEpisodes[sender.tag].savePosition(0)
         recentEpisodes.remove(at: sender.tag)
         builtRecentGuids = recentEpisodes.map { $0.guid }
+        rebuildLayout()
+    }
+
+    @objc private func upNextTapped(_ sender: UIButton) {
+        guard sender.tag < upNext.count else { return }
+        let (podcast, ep) = upNext[sender.tag]
+        navigationController?.pushViewController(
+            EpisodeDetailVC(episode: ep, podcast: podcast), animated: true)
+    }
+
+    @objc private func upNextDoneTapped(_ sender: UIButton) {
+        guard sender.tag < upNext.count else { return }
+        let (podcast, ep) = upNext[sender.tag]
+        Episode.markPlayed(guid: ep.guid)
+        LatestEpisodeCache.remove(feedUrl: podcast.feedUrl)
+        upNext.remove(at: sender.tag)
+        builtUpNextGuids = upNext.map { $0.1.guid }
         rebuildLayout()
     }
 

@@ -17,6 +17,43 @@ class Episode: NSObject {
         UserDefaults.standard.set(seconds, forKey: "pos_\(guid)")
     }
 
+    // MARK: - Played tracking
+    // savedPosition() alone cannot distinguish "never started" from "marked done"
+    // (both are 0), so completed episodes are tracked separately by guid.
+    private static let playedGuidsKey = "played_episode_guids"
+
+    static func isPlayed(guid: String) -> Bool {
+        return (UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? []).contains(guid)
+    }
+
+    static func markPlayed(guid: String) {
+        var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
+        set.insert(guid)
+        UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
+    }
+
+    // MARK: - Publish date parsing (for sorting the "New Episodes" swim lane)
+    private static let dateFormatters: [DateFormatter] = {
+        ["EEE, dd MMM yyyy HH:mm:ss ZZZ",
+         "EEE, dd MMM yyyy HH:mm:ss Z",
+         "dd MMM yyyy HH:mm:ss ZZZ",
+         "yyyy-MM-dd'T'HH:mm:ssZZZZZ",
+         "yyyy-MM-dd'T'HH:mm:ssZ"].map { format in
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.dateFormat = format
+            return f
+        }
+    }()
+
+    func pubDateAsDate() -> Date? {
+        guard !pubDate.isEmpty else { return nil }
+        for f in Episode.dateFormatters {
+            if let d = f.date(from: pubDate) { return d }
+        }
+        return nil
+    }
+
     func localPath() -> String? {
         let path = localPathForWriting()
         return FileManager.default.fileExists(atPath: path) ? path : nil

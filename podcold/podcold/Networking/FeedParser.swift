@@ -9,6 +9,7 @@ class FeedParser: NSObject, XMLParserDelegate {
     private var inItem = false          // RSS <item> or Atom <entry>
 
     private static let maxEpisodes = 20
+    private static let parseQueue = DispatchQueue(label: "com.podcold.feedparser")
 
     // MARK: — Public entry point
 
@@ -25,7 +26,7 @@ class FeedParser: NSObject, XMLParserDelegate {
         func handle(_ data: Data?) {
             guard !done, let data = data else { return }
             done = true  // block second request now, before leaving main thread
-            DispatchQueue(label: "com.podcold.feedparser").async {
+            FeedParser.parseQueue.async {
                 let eps = FeedParser.runXML(data: data, podcastTitle: podcastTitle)
                 DispatchQueue.main.async { completion(eps) }
             }

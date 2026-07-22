@@ -44,9 +44,13 @@
 		BB000001000000000000BC14 /* atomic_stubs.c in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB14 /* atomic_stubs.c */; settings = {COMPILER_FLAGS = "-fno-builtin"; }; };
 		BB000001000000000000BB15 /* atomic_stubs.S */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.asm; path = atomic_stubs.S; sourceTree = "<group>"; };
 		BB000001000000000000BB16 /* BackupManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupManager.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB20 /* LatestEpisodeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatestEpisodeCache.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB21 /* UpNextManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpNextManager.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB17 /* SettingsVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsVC.swift; sourceTree = "<group>"; };
 		BB000001000000000000BC15 /* atomic_stubs.S in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB15 /* atomic_stubs.S */; };
 		BB000001000000000000BC16 /* BackupManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB16 /* BackupManager.swift */; };
+		BB000001000000000000BC20 /* LatestEpisodeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB20 /* LatestEpisodeCache.swift */; };
+		BB000001000000000000BC21 /* UpNextManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB21 /* UpNextManager.swift */; };
 		BB000001000000000000BC17 /* SettingsVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB17 /* SettingsVC.swift */; };
 /* End PBXBuildFile section */
 
@@ -217,6 +221,8 @@
 				BB000001000000000000BB05 /* Podcast.swift */,
 				BB000001000000000000BB06 /* Episode.swift */,
 				BB000001000000000000BB16 /* BackupManager.swift */,
+				BB000001000000000000BB20 /* LatestEpisodeCache.swift */,
+				BB000001000000000000BB21 /* UpNextManager.swift */,
 			);
 			name = Models;
 			path = Models;
@@ -418,6 +424,8 @@
 				BB000001000000000000BC14 /* atomic_stubs.c in Sources */,
 				BB000001000000000000BC15 /* atomic_stubs.S in Sources */,
 				BB000001000000000000BC16 /* BackupManager.swift in Sources */,
+				BB000001000000000000BC20 /* LatestEpisodeCache.swift in Sources */,
+				BB000001000000000000BC21 /* UpNextManager.swift in Sources */,
 				BB000001000000000000BC17 /* SettingsVC.swift in Sources */,
 				A34362D62FD764210064ADE1 /* ViewController.swift in Sources */,
 				A34362FF2FD764260064ADE1 /* AppDelegate.swift in Sources */,

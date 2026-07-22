@@ -91,6 +91,7 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         var subs = Podcast.loadSubscriptions()
         if subs.contains(where: { $0.feedUrl == podcast.feedUrl }) {
             subs.removeAll { $0.feedUrl == podcast.feedUrl }
+            LatestEpisodeCache.remove(feedUrl: podcast.feedUrl)
             subscribeBtn.title = "Subscribe"
         } else {
             subs.append(podcast)
