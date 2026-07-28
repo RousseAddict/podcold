@@ -172,16 +172,13 @@ class AudioPlayer: NSObject {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
 
         guard !episode.artworkUrl.isEmpty else { return }
-        CurlFetcher.fetchData(url: episode.artworkUrl, timeout: 15) { data in
-            guard let data = data else { return }
-            AudioPlayer.bgQueue.async {
-                guard let image = UIImage(data: data) else { return }
-                DispatchQueue.main.async {
-                    var updated = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-                    updated[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(image: image)
-                    MPNowPlayingInfoCenter.default().nowPlayingInfo = updated
-                }
-            }
+        // Go through AsyncImageView so this shares the memory/disk cache with the UI
+        // instead of re-downloading on every play, and so the image arrives already
+        // downscaled — decoding a 3000x3000 cover here spiked ~36 MB on a 4S.
+        AsyncImageView.loadCell(url: episode.artworkUrl, maxPx: 300) { image in
+            var updated = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+            updated[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(image: image)
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = updated
         }
     }
 

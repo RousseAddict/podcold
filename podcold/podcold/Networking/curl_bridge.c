@@ -6,7 +6,16 @@ void curl_bridge_global_init(void) {
 }
 
 CurlHandle curl_bridge_init(void) {
-    return curl_easy_init();
+    CURL *h = curl_easy_init();
+    /* NOSIGNAL: without it libcurl uses SIGALRM to time out name resolution,
+       which is not safe when performing transfers off the main thread. */
+    curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);
+    return h;
+}
+
+void curl_bridge_reset(CurlHandle h) {
+    curl_easy_reset(h);
+    curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);  /* reset clears options, not caches */
 }
 
 void curl_bridge_cleanup(CurlHandle h) {
@@ -29,6 +38,21 @@ void curl_bridge_set_follow_redirects(CurlHandle h) {
 
 void curl_bridge_set_timeout(CurlHandle h, long secs) {
     curl_easy_setopt(h, CURLOPT_TIMEOUT, secs);
+}
+
+void curl_bridge_set_connect_timeout(CurlHandle h, long secs) {
+    curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT, secs);
+}
+
+void curl_bridge_set_low_speed_abort(CurlHandle h, long bytes_per_sec, long secs) {
+    curl_easy_setopt(h, CURLOPT_LOW_SPEED_LIMIT, bytes_per_sec);
+    curl_easy_setopt(h, CURLOPT_LOW_SPEED_TIME, secs);
+}
+
+void curl_bridge_set_accept_encoding(CurlHandle h) {
+    /* "" = advertise every encoding this libcurl was built with (gzip/deflate
+       via zlib) and transparently decompress. Feeds are XML: 3-5x smaller. */
+    curl_easy_setopt(h, CURLOPT_ACCEPT_ENCODING, "");
 }
 
 void curl_bridge_set_write_fn(CurlHandle h, CurlBridgeWriteFn fn, void *userdata) {

@@ -15,30 +15,32 @@ class FeedParser: NSObject, XMLParserDelegate {
 
     static func parse(feedUrl: String, podcastTitle: String, completion: @escaping ([Episode]) -> Void) {
         // Use CurlFetcher (libcurl + OpenSSL) — handles GCM ciphers that NSURLConnection
-        // (Apple Secure Transport) cannot negotiate on iOS 6. Race HTTPS and HTTP in
-        // parallel; whichever returns data first wins.
-        let httpUrl: String? = feedUrl.lowercased().hasPrefix("https://")
+        // (Apple Secure Transport) cannot negotiate on iOS 6.
+        //
+        // HTTP is a *sequential fallback*, not a parallel race: the feed lane is a
+        // serial queue, so firing both at once did not race — the loser still
+        // downloaded the entire feed and threw it away, doubling traffic on every
+        // refresh. Only try plain HTTP once HTTPS has actually failed.
+        let httpFallback: String? = feedUrl.lowercased().hasPrefix("https://")
             ? "http://" + String(feedUrl.dropFirst(8))
             : nil
 
-        var done = false
-
-        func handle(_ data: Data?) {
-            guard !done, let data = data else { return }
-            done = true  // block second request now, before leaving main thread
+        // No wall-clock watchdog here: it measured from enqueue rather than from
+        // request start, so a busy lane made it fire while the request was still
+        // queued — reporting failure and then discarding the real response.
+        // CURLOPT_TIMEOUT guarantees curl always calls back.
+        func finish(_ data: Data?) {
+            guard let data = data else { completion([]); return }
             FeedParser.parseQueue.async {
                 let eps = FeedParser.runXML(data: data, podcastTitle: podcastTitle)
                 DispatchQueue.main.async { completion(eps) }
             }
         }
 
-        CurlFetcher.fetchData(url: feedUrl, timeout: 30) { data in handle(data) }
-        if let http = httpUrl { CurlFetcher.fetchData(url: http, timeout: 30) { data in handle(data) } }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 32) {
-            guard !done else { return }
-            done = true
-            completion([])
+        CurlFetcher.fetchFeed(url: feedUrl) { data in
+            if data != nil { finish(data); return }
+            guard let http = httpFallback else { finish(nil); return }
+            CurlFetcher.fetchFeed(url: http) { fallbackData in finish(fallbackData) }
         }
     }
 
