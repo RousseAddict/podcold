@@ -48,6 +48,9 @@ class UpNextManager {
                 !self.inProgressGuids.contains($0.guid) && !Episode.isPlayed(guid: $0.guid)
             }
             LatestEpisodeCache.store(feedUrl: podcast.feedUrl, episode: qualifying)
+            // This batch already paid for the download and the parse, so hand the full
+            // list to EpisodeListCache too — opening the podcast afterwards is then free.
+            EpisodeListCache.store(feedUrl: podcast.feedUrl, episodes: episodes)
             self.onUpdate?()
             self.processNext()
         }

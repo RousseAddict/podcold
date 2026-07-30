@@ -58,6 +58,14 @@ class AsyncImageView: UIImageView {
     // UIGraphicsBeginImageContextWithOptions is safer on iOS 6 when not called concurrently.
     private static let decodeQueue = DispatchQueue(label: "com.podcold.imagedecode")
 
+    // MARK: - In-flight requests
+    // Coalesces duplicate requests for the same (url, targetPx). The same podcast can
+    // appear in Continue Listening, New Episodes and the grid simultaneously, and each
+    // occurrence used to run its own download + decode of an identical bitmap.
+    // Only ever touched from the main thread: both entry points (`load`, `loadCell`)
+    // are called there and every completion is delivered there, so no lock is needed.
+    private static var inFlight: [NSString: [(UIImage) -> Void]] = [:]
+
     // MARK: - Instance state
     private var loadingURL: String?
 
@@ -77,11 +85,27 @@ class AsyncImageView: UIImageView {
         let capturedURL = url
         AsyncImageView.fetch(url: url, targetPx: targetPx) { [weak self] img in
             guard let self = self, self.loadingURL == capturedURL else { return }
-            self.image = img
+            self.setImageFadingIn(img)
         }
     }
 
     func cancel() { loadingURL = nil }
+
+    // A memory-cache hit assigns `image` directly with no animation — that's the
+    // common case once warm, and animating it would look wrong. Anything that had to
+    // touch disk or the network fades in instead, which reads as arriving rather than
+    // as a blank cell that suddenly pops.
+    //
+    // CATransition on our own layer rather than UIView.transition(with:): the latter
+    // snapshots the whole view, and these image views sit inside cards with
+    // shouldRasterize = true, where a larger invalidation is more expensive.
+    private func setImageFadingIn(_ img: UIImage) {
+        image = img
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = 0.15
+        layer.add(fade, forKey: "podcold.fade")
+    }
 
     // Longest edge of this view in device pixels. Falls back to 300 pt when the
     // frame has not been set yet (bounds are 0 in viewDidLoad for pushed VCs).
@@ -107,13 +131,20 @@ class AsyncImageView: UIImageView {
         let path = diskPath(for: url, targetPx: targetPx)
         let key = cacheKey(url: url, targetPx: targetPx)
 
+        // Already being fetched at this size — just wait for the result.
+        if inFlight[key] != nil {
+            inFlight[key]?.append(completion)
+            return
+        }
+        inFlight[key] = [completion]
+
         // Step 1: Check disk on background queue (avoids main-thread file I/O).
         // The stored file is already downscaled, so this decode is cheap.
         decodeQueue.async {
             if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
                let img = decode(data, targetPx: targetPx) {
                 cache.setObject(img, forKey: key, cost: bitmapCost(img))
-                DispatchQueue.main.async { completion(img) }
+                DispatchQueue.main.async { deliver(key, img) }
                 return
             }
 
@@ -121,19 +152,30 @@ class AsyncImageView: UIImageView {
             // and returns immediately
             CurlFetcher.fetchImage(url: url) { data in
                 // CurlFetcher completion fires on main thread
-                guard let data = data else { return }
+                guard let data = data else { deliver(key, nil); return }
                 AsyncImageView.decodeQueue.async {
-                    guard let img = decode(data, targetPx: targetPx) else { return }
-                    // Persist the downscaled result, not the original bytes, so the
-                    // next disk hit is a small decode instead of a full-size one.
-                    if let jpeg = img.jpegData(compressionQuality: 0.85) {
-                        try? jpeg.write(to: URL(fileURLWithPath: path), options: .atomicWrite)
+                    let img = decode(data, targetPx: targetPx)
+                    if let img = img {
+                        // Persist the downscaled result, not the original bytes, so the
+                        // next disk hit is a small decode instead of a full-size one.
+                        if let jpeg = img.jpegData(compressionQuality: 0.85) {
+                            try? jpeg.write(to: URL(fileURLWithPath: path), options: .atomicWrite)
+                        }
+                        cache.setObject(img, forKey: key, cost: bitmapCost(img))
                     }
-                    cache.setObject(img, forKey: key, cost: bitmapCost(img))
-                    DispatchQueue.main.async { completion(img) }
+                    DispatchQueue.main.async { deliver(key, img) }
                 }
             }
         }
+    }
+
+    // Main thread only. Always clears the in-flight entry, including on failure —
+    // leaving it behind would make a URL that failed once un-retryable for the rest
+    // of the app's life. A nil image simply notifies nobody.
+    private static func deliver(_ key: NSString, _ image: UIImage?) {
+        guard let waiters = inFlight.removeValue(forKey: key) else { return }
+        guard let image = image else { return }
+        for waiter in waiters { waiter(image) }
     }
 
     // MARK: - Decode helpers

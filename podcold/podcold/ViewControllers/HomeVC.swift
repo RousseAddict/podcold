@@ -8,6 +8,8 @@ class HomeVC: UIViewController {
     private var builtPodcastUrls: [String] = []
     private var builtRecentGuids: [String] = []
     private var builtUpNextGuids: [String] = []
+    private var inProgressGuids: Set<String> = []
+    private var rebuildScheduled = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -28,17 +30,18 @@ class HomeVC: UIViewController {
         podcasts       = Podcast.loadSubscriptions()
         recentEpisodes = Episode.loadRecents().filter { $0.savedPosition() > 30 }
 
-        let inProgressGuids = Set(recentEpisodes.map { $0.guid })
+        inProgressGuids = Set(recentEpisodes.map { $0.guid })
         upNext = UpNextManager.shared.cachedUpNext(podcasts: podcasts, inProgressGuids: inProgressGuids)
-        UpNextManager.shared.onUpdate = { [weak self] in
-            guard let self = self else { return }
-            DispatchQueue.main.async {
-                self.upNext = UpNextManager.shared.cachedUpNext(podcasts: self.podcasts, inProgressGuids: inProgressGuids)
-                self.builtUpNextGuids = self.upNext.map { $0.1.guid }
-                self.rebuildLayout()
-            }
-        }
+        UpNextManager.shared.onUpdate = { [weak self] in self?.scheduleUpNextRebuild() }
         UpNextManager.shared.refreshStale(podcasts: podcasts, inProgressGuids: inProgressGuids)
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // The refresh batch keeps running while the user is on another screen; its
+        // results still land in LatestEpisodeCache, and viewDidAppear's dirty check
+        // picks them up on return. Rebuilding an off-screen hierarchy is pure waste.
+        UpNextManager.shared.onUpdate = nil
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -54,6 +57,27 @@ class HomeVC: UIViewController {
     }
 
     // MARK: - Layout
+
+    // UpNextManager streams one result per feed, and rebuildLayout tears down and
+    // recreates every subview — so 15 subscriptions used to mean 15 full rebuilds
+    // during the refresh, each one restarting the artwork loads it had just torn
+    // down. Coalesce the burst into a single pass.
+    private func scheduleUpNextRebuild() {
+        guard !rebuildScheduled else { return }
+        rebuildScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self = self else { return }
+            self.rebuildScheduled = false
+            guard self.view.window != nil else { return }
+            let refreshed = UpNextManager.shared.cachedUpNext(podcasts: self.podcasts,
+                                                             inProgressGuids: self.inProgressGuids)
+            let guids = refreshed.map { $0.1.guid }
+            guard guids != self.builtUpNextGuids else { return }
+            self.upNext = refreshed
+            self.builtUpNextGuids = guids
+            self.rebuildLayout()
+        }
+    }
 
     private func rebuildLayout() {
         scrollView.subviews.forEach { $0.removeFromSuperview() }

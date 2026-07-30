@@ -67,21 +67,35 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
 
         view.addSubview(emptyView)
 
+        // Show whatever we had last time before the first reloadData, so the table
+        // arrives populated instead of empty-with-a-spinner.
+        episodes = EpisodeListCache.cached(feedUrl: podcast.feedUrl)
+
         load()
     }
 
     private func load() {
         emptyView.isHidden = true
-        spinner.startAnimating()
+        // Only spin when there is nothing to look at; a background refresh over
+        // already-visible rows should be invisible.
+        if episodes.isEmpty { spinner.startAnimating() }
         FeedParser.parse(feedUrl: podcast.feedUrl, podcastTitle: podcast.title) { [weak self] eps in
             guard let self = self else { return }
             self.spinner.stopAnimating()
-            self.episodes = eps
-            self.tableView.reloadData()
-            if eps.isEmpty {
-                self.emptyLabel.text = "Could not load episodes.\nCheck your connection."
-                self.emptyView.isHidden = false
+
+            if !eps.isEmpty {
+                self.episodes = eps
+                self.tableView.reloadData()
+                EpisodeListCache.store(feedUrl: self.podcast.feedUrl, episodes: eps)
+                return
             }
+
+            // Refresh failed. Keep the cached rows on screen — replacing real
+            // episodes with an error because the network blipped is worse than
+            // showing slightly stale ones.
+            guard self.episodes.isEmpty else { return }
+            self.emptyLabel.text = "Could not load episodes.\nCheck your connection."
+            self.emptyView.isHidden = false
         }
     }
 
@@ -92,6 +106,7 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         if subs.contains(where: { $0.feedUrl == podcast.feedUrl }) {
             subs.removeAll { $0.feedUrl == podcast.feedUrl }
             LatestEpisodeCache.remove(feedUrl: podcast.feedUrl)
+            EpisodeListCache.remove(feedUrl: podcast.feedUrl)
             subscribeBtn.title = "Subscribe"
         } else {
             subs.append(podcast)
