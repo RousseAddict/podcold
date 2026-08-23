@@ -344,6 +344,7 @@ class HomeVC: UIViewController {
     @objc private func markPlayedTapped(_ sender: UIButton) {
         guard sender.tag < recentEpisodes.count else { return }
         recentEpisodes[sender.tag].savePosition(0)
+        recentEpisodes[sender.tag].autoDeleteIfEnabled()
         recentEpisodes.remove(at: sender.tag)
         builtRecentGuids = recentEpisodes.map { $0.guid }
         rebuildLayout()
@@ -360,6 +361,7 @@ class HomeVC: UIViewController {
         guard sender.tag < upNext.count else { return }
         let (podcast, ep) = upNext[sender.tag]
         Episode.markPlayed(guid: ep.guid)
+        ep.autoDeleteIfEnabled()
         LatestEpisodeCache.remove(feedUrl: podcast.feedUrl)
         upNext.remove(at: sender.tag)
         builtUpNextGuids = upNext.map { $0.1.guid }

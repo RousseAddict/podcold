@@ -128,6 +128,29 @@ class Episode: NSObject {
         UserDefaults.standard.set(list.map { $0.toDict() }, forKey: downloadsKey)
     }
 
+    // MARK: - Auto-delete finished downloads
+
+    private static let autoDeleteKey = "auto_delete_finished_downloads"
+
+    // Off by default — bool(forKey:) returns false when unset.
+    static var autoDeleteFinished: Bool {
+        get { return UserDefaults.standard.bool(forKey: autoDeleteKey) }
+        set { UserDefaults.standard.set(newValue, forKey: autoDeleteKey) }
+    }
+
+    // Removes the downloaded file and its record. No-op if not downloaded.
+    func deleteDownload() {
+        if let path = localPath() {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        Episode.removeFromDownloads(guid: guid)
+    }
+
+    func autoDeleteIfEnabled() {
+        guard Episode.autoDeleteFinished else { return }
+        deleteDownload()
+    }
+
     // Raw load without file existence check (used internally)
     private static func loadAllDownloadRecords() -> [Episode] {
         guard let arr = UserDefaults.standard.array(forKey: downloadsKey) as? [[String: Any]] else { return [] }

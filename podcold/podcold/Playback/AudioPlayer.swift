@@ -156,6 +156,7 @@ class AudioPlayer: NSObject {
     @objc private func didFinish() {
         currentEpisode?.savePosition(0)
         if let guid = currentEpisode?.guid { Episode.markPlayed(guid: guid) }
+        currentEpisode?.autoDeleteIfEnabled()
         onFinish?()
         onStateChange?()
     }

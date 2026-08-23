@@ -25,14 +25,20 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     // MARK: - UITableViewDataSource
 
-    func numberOfSections(in tableView: UITableView) -> Int { return 1 }
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { return 2 }
+    func numberOfSections(in tableView: UITableView) -> Int { return 2 }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return section == 0 ? 1 : 2
+    }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        return "Backup & Restore"
+        return section == 0 ? "Downloads" : "Backup & Restore"
     }
 
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        if section == 0 {
+            return "When on, the downloaded file is deleted once an episode finishes playing or you tap Done."
+        }
         return "To migrate to a new device: export, share via email, then copy the .json file to the new device via iTunes/Finder File Sharing and tap Import."
     }
 
@@ -44,6 +50,16 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
         cell.textLabel?.textColor              = .white
         cell.detailTextLabel?.textColor        = UIColor(white: 1, alpha: 0.4)
         cell.selectionStyle                    = .default
+
+        if indexPath.section == 0 {
+            cell.textLabel?.text = "Delete after playing"
+            cell.selectionStyle  = .none
+            let sw = UISwitch()
+            sw.isOn = Episode.autoDeleteFinished
+            sw.addTarget(self, action: #selector(autoDeleteChanged(_:)), for: .valueChanged)
+            cell.accessoryView = sw
+            return cell
+        }
 
         if indexPath.row == 0 {
             cell.textLabel?.text = "Export backup"
@@ -61,8 +77,15 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.section == 1 else { return }
         if indexPath.row == 0 { handleExport() }
         else                  { handleImport() }
+    }
+
+    // MARK: - Downloads
+
+    @objc private func autoDeleteChanged(_ sender: UISwitch) {
+        Episode.autoDeleteFinished = sender.isOn
     }
 
     // MARK: - Export
