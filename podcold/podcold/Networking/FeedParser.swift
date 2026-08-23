@@ -8,12 +8,37 @@ class FeedParser: NSObject, XMLParserDelegate {
     private var currentText = ""
     private var inItem = false          // RSS <item> or Atom <entry>
 
-    private static let maxEpisodes = 20
+    private var limit = FeedParser.pageSize
     private static let parseQueue = DispatchQueue(label: "com.podcold.feedparser")
 
     // MARK: — Public entry point
 
-    static func parse(feedUrl: String, podcastTitle: String, completion: @escaping ([Episode]) -> Void) {
+    // A feed is a single XML document with no server-side paging, so "load more"
+    // means parsing further into the same bytes. Parsing stops at `limit` via
+    // abortParsing(), so a deeper re-parse only reads as far as it needs to.
+    static let pageSize = 20
+
+    static func parse(feedUrl: String, podcastTitle: String, limit: Int = pageSize,
+                      completion: @escaping ([Episode]) -> Void) {
+        parseKeepingData(feedUrl: feedUrl, podcastTitle: podcastTitle, limit: limit) { eps, _ in
+            completion(eps)
+        }
+    }
+
+    // Re-parse bytes the caller already holds — no network. Used by
+    // EpisodeListVC's load-more.
+    static func parse(data: Data, podcastTitle: String, limit: Int,
+                      completion: @escaping ([Episode]) -> Void) {
+        parseQueue.async {
+            let eps = runXML(data: data, podcastTitle: podcastTitle, limit: limit)
+            DispatchQueue.main.async { completion(eps) }
+        }
+    }
+
+    // As `parse`, but also hands back the raw feed bytes so the caller can page
+    // deeper without a second download.
+    static func parseKeepingData(feedUrl: String, podcastTitle: String, limit: Int = pageSize,
+                                 completion: @escaping ([Episode], Data?) -> Void) {
         // Use CurlFetcher (libcurl + OpenSSL) — handles GCM ciphers that NSURLConnection
         // (Apple Secure Transport) cannot negotiate on iOS 6.
         //
@@ -30,10 +55,10 @@ class FeedParser: NSObject, XMLParserDelegate {
         // queued — reporting failure and then discarding the real response.
         // CURLOPT_TIMEOUT guarantees curl always calls back.
         func finish(_ data: Data?) {
-            guard let data = data else { completion([]); return }
+            guard let data = data else { completion([], nil); return }
             FeedParser.parseQueue.async {
-                let eps = FeedParser.runXML(data: data, podcastTitle: podcastTitle)
-                DispatchQueue.main.async { completion(eps) }
+                let eps = FeedParser.runXML(data: data, podcastTitle: podcastTitle, limit: limit)
+                DispatchQueue.main.async { completion(eps, data) }
             }
         }
 
@@ -46,9 +71,10 @@ class FeedParser: NSObject, XMLParserDelegate {
 
     // MARK: — Synchronous XML parse
 
-    private static func runXML(data: Data, podcastTitle: String) -> [Episode] {
+    private static func runXML(data: Data, podcastTitle: String, limit: Int) -> [Episode] {
         let p = FeedParser()
         p.podcastTitle = podcastTitle
+        p.limit = limit
         let xml = XMLParser(data: data)
         xml.delegate = p
         xml.parse()
@@ -117,7 +143,7 @@ class FeedParser: NSObject, XMLParserDelegate {
             }
             inItem = false; currentEpisode = nil
             // RSS/Atom feeds are newest-first — abort as soon as we have enough
-            if episodes.count >= FeedParser.maxEpisodes {
+            if episodes.count >= limit {
                 parser.abortParsing()
             }
             return

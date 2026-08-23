@@ -10,6 +10,23 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
     private var emptyLabel: UILabel!
     private var retryBtn: UIButton!
 
+    // Load-more state. A feed has no server-side paging, so paging deeper means
+    // re-parsing the same bytes with a higher cap — kept here so it costs no
+    // network. Dropped above the size cap so a 2000-episode feed can't sit in RAM.
+    private static let maxRetainedFeedBytes = 6 * 1024 * 1024
+    private var feedData: Data?
+    private var loadedLimit = FeedParser.pageSize
+    private var hasMore = false
+    private var isLoadingMore = false
+    // Until the first feed response lands we cannot know whether there is more.
+    // That response queues behind UpNextManager's batch on the serial feed lane,
+    // so it can be slow — the footer has to say "working" rather than show
+    // nothing, which reads as a dead control.
+    private var initialLoadInFlight = false
+    private var footerView: UIView!
+    private var footerLabel: UILabel!
+    private var footerSpinner: UIActivityIndicatorView!
+
     init(podcast: Podcast) { self.podcast = podcast; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -67,6 +84,32 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
 
         view.addSubview(emptyView)
 
+        // Load-more footer. Attached to tableFooterView only while there is more
+        // to fetch, so it doubles as the "you've reached the end" signal.
+        footerView = UIView(frame: CGRect(x: 0, y: 0, width: w, height: 64))
+        footerView.backgroundColor = .clear
+
+        footerSpinner = UIActivityIndicatorView(style: .white)
+        footerSpinner.frame = CGRect(x: (w - 20) / 2, y: 10, width: 20, height: 20)
+        footerSpinner.hidesWhenStopped = true
+        footerView.addSubview(footerSpinner)
+
+        footerLabel = UILabel(frame: CGRect(x: 20, y: 36, width: w - 40, height: 20))
+        footerLabel.textAlignment = .center
+        footerLabel.backgroundColor = .clear
+        footerLabel.textColor = UIColor(white: 0.55, alpha: 1)
+        footerLabel.font = UIFont.systemFont(ofSize: 14)
+        footerView.addSubview(footerLabel)
+
+        // Transparent button rather than a tap gesture — on iOS 6 a recognizer on
+        // a container fires alongside its subviews' taps. Also a manual fallback
+        // if the scroll trigger is missed.
+        let footerBtn = UIButton(type: .custom)
+        footerBtn.frame = footerView.bounds
+        footerBtn.backgroundColor = .clear
+        footerBtn.addTarget(self, action: #selector(loadMoreTapped), for: .touchUpInside)
+        footerView.addSubview(footerBtn)
+
         // Show whatever we had last time before the first reloadData, so the table
         // arrives populated instead of empty-with-a-spinner.
         episodes = EpisodeListCache.cached(feedUrl: podcast.feedUrl)
@@ -79,20 +122,46 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         // Only spin when there is nothing to look at; a background refresh over
         // already-visible rows should be invisible.
         if episodes.isEmpty { spinner.startAnimating() }
-        FeedParser.parse(feedUrl: podcast.feedUrl, podcastTitle: podcast.title) { [weak self] eps in
+
+        initialLoadInFlight = true
+        updateFooter()
+        // Stand the background batch down so this request — the one the user is
+        // waiting on — gets the feed lane next instead of after every subscription.
+        UpNextManager.shared.suspend()
+
+        FeedParser.parseKeepingData(feedUrl: podcast.feedUrl,
+                                    podcastTitle: podcast.title,
+                                    limit: FeedParser.pageSize) { [weak self] eps, data in
+            // Before the weak-self guard: the batch must restart even if this
+            // screen was popped mid-request.
+            UpNextManager.shared.resume()
             guard let self = self else { return }
+            self.initialLoadInFlight = false
             self.spinner.stopAnimating()
+            self.retainFeedData(data)
 
             if !eps.isEmpty {
                 self.episodes = eps
+                self.loadedLimit = FeedParser.pageSize
+                // A full page means the parser stopped early, so there is more.
+                self.hasMore = eps.count >= FeedParser.pageSize
                 self.tableView.reloadData()
+                self.updateFooter()
+                // `hasMore` may have just flipped true under a user who is already
+                // scrolled to the bottom of the cached rows — nothing further will
+                // move, so nothing else would ever trigger the first page.
+                self.maybeLoadMore()
+                // Only the first page is cached — EpisodeListVC.viewDidLoad reads
+                // this synchronously, and a 200-episode plist would stall it.
                 EpisodeListCache.store(feedUrl: self.podcast.feedUrl, episodes: eps)
                 return
             }
 
             // Refresh failed. Keep the cached rows on screen — replacing real
             // episodes with an error because the network blipped is worse than
-            // showing slightly stale ones.
+            // showing slightly stale ones. Drop the footer either way, or its
+            // spinner spins forever.
+            self.updateFooter()
             guard self.episodes.isEmpty else { return }
             self.emptyLabel.text = "Could not load episodes.\nCheck your connection."
             self.emptyView.isHidden = false
@@ -100,6 +169,77 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
     }
 
     @objc private func retryTapped() { load() }
+
+    // MARK: — Load more
+
+    private func retainFeedData(_ data: Data?) {
+        guard let data = data, data.count <= EpisodeListVC.maxRetainedFeedBytes else {
+            feedData = nil
+            return
+        }
+        feedData = data
+    }
+
+    @objc private func loadMoreTapped() { loadMore() }
+
+    private func loadMore() {
+        guard hasMore, !isLoadingMore else { return }
+        isLoadingMore = true
+        updateFooter()
+
+        let next = loadedLimit + FeedParser.pageSize
+
+        // A deeper parse re-reads from the top, so it is a superset of what we
+        // already show. Not growing means the feed ran out before `next`.
+        let apply: ([Episode]) -> Void = { [weak self] eps in
+            guard let self = self else { return }
+            self.isLoadingMore = false
+            if eps.count > self.episodes.count {
+                self.episodes = eps
+                self.loadedLimit = next
+                self.hasMore = eps.count >= next
+                self.tableView.reloadData()
+            } else {
+                self.hasMore = false
+            }
+            self.updateFooter()
+        }
+
+        if let data = feedData {
+            FeedParser.parse(data: data, podcastTitle: podcast.title, limit: next, completion: apply)
+        } else {
+            // Feed was too big to keep in memory — pay for a re-fetch instead,
+            // and take the lane off the background batch for the same reason.
+            UpNextManager.shared.suspend()
+            FeedParser.parseKeepingData(feedUrl: podcast.feedUrl,
+                                        podcastTitle: podcast.title,
+                                        limit: next) { [weak self] eps, data in
+                UpNextManager.shared.resume()
+                self?.retainFeedData(data)
+                apply(eps)
+            }
+        }
+    }
+
+    private func updateFooter() {
+        // Show it while there is more to fetch, and also while the first feed
+        // response is still outstanding over cached rows — during that window
+        // `hasMore` is false only because we don't know yet.
+        let show = hasMore || (initialLoadInFlight && !episodes.isEmpty)
+        guard show else {
+            footerSpinner.stopAnimating()
+            tableView.tableFooterView = nil
+            return
+        }
+        if isLoadingMore || initialLoadInFlight {
+            footerLabel.text = "Loading older episodes…"
+            footerSpinner.startAnimating()
+        } else {
+            footerLabel.text = "Load older episodes"
+            footerSpinner.stopAnimating()
+        }
+        if tableView.tableFooterView !== footerView { tableView.tableFooterView = footerView }
+    }
 
     @objc private func toggleSubscribe() {
         var subs = Podcast.loadSubscriptions()
@@ -139,6 +279,23 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         cell.backgroundColor = .clear
         cell.accessoryType   = .disclosureIndicator
         return cell
+    }
+
+    // Level trigger, not an edge one. `willDisplay` fires only at the instant a
+    // cell scrolls into view — and on first entry the rows are already on screen
+    // from the cache while `hasMore` is still false, so the bail-out in loadMore()
+    // consumed the only trigger those cells would ever get, and it took a bounce
+    // past the bottom to re-display them. Re-evaluating on every scroll tick means
+    // a late `hasMore` still fires.
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { maybeLoadMore() }
+
+    private func maybeLoadMore() {
+        guard hasMore, !isLoadingMore, tableView.bounds.height > 0 else { return }
+        let remaining = tableView.contentSize.height
+            - tableView.contentOffset.y
+            - tableView.bounds.height
+        // One screenful of lead time.
+        if remaining < tableView.bounds.height { loadMore() }
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

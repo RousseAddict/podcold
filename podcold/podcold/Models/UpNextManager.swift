@@ -13,8 +13,21 @@ class UpNextManager {
     private init() {}
 
     private var refreshing = false
+    private var paused = false
     private var pending: [Podcast] = []
     private var inProgressGuids: Set<String> = []
+
+    // This batch owns CurlFetcher's serial feed lane for as long as it runs, so a
+    // screen the user is actually looking at would queue behind every remaining
+    // subscription. Yielding between feeds bounds that wait to the one download
+    // already in flight instead of all of them.
+    func suspend() { paused = true }
+
+    func resume() {
+        guard paused else { return }
+        paused = false
+        if !refreshing { processNext() }
+    }
 
     // Called after each feed in the batch resolves, so HomeVC can incrementally re-render.
     var onUpdate: (() -> Void)?
@@ -39,6 +52,8 @@ class UpNextManager {
     }
 
     private func processNext() {
+        // Yield the feed lane; resume() picks the batch back up where it stopped.
+        guard !paused else { refreshing = false; return }
         guard !pending.isEmpty else { refreshing = false; return }
         refreshing = true
         let podcast = pending.removeFirst()
