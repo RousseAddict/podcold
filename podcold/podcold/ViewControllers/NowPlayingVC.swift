@@ -1,6 +1,6 @@
 import UIKit
 
-class NowPlayingVC: UIViewController {
+class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate {
     private let artworkView      = AsyncImageView()
     private let titleLabel       = UILabel()
     private let podcastLabel     = UILabel()
@@ -15,7 +15,8 @@ class NowPlayingVC: UIViewController {
     private var currentTime: Double = 0
     private let speeds: [Float]  = [1.0, 1.5, 2.0, 0.5]
     private var speedIndex       = 0
-    private var scrollView: UIScrollView!
+    private var tableView: UITableView!
+    private var headerView: UIView!
     private var lastDisplayedSecond = -1
 
     override func viewDidLoad() {
@@ -27,7 +28,10 @@ class NowPlayingVC: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        guard scrollView == nil else { return }
+        guard tableView == nil else {
+            refreshQueue()
+            return
+        }
         setupUI()
         refreshFromCurrentEpisode()
     }
@@ -35,9 +39,18 @@ class NowPlayingVC: UIViewController {
     private func setupUI() {
         let w = UIScreen.main.bounds.width
 
-        scrollView = UIScrollView(frame: view.bounds)
-        scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(scrollView)
+        // The whole player lives in the table header — queue rows scroll underneath it.
+        headerView = UIView(frame: CGRect(x: 0, y: 0, width: w, height: 0))
+        headerView.backgroundColor = .clear
+
+        tableView = UITableView(frame: view.bounds, style: .plain)
+        tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        tableView.backgroundColor = UIColor(red: 0.08, green: 0.08, blue: 0.12, alpha: 1)
+        tableView.separatorColor = UIColor(white: 0.18, alpha: 1)
+        tableView.rowHeight = 56
+        tableView.dataSource = self
+        tableView.delegate = self
+        view.addSubview(tableView)
 
         var y: CGFloat = 20
 
@@ -47,7 +60,7 @@ class NowPlayingVC: UIViewController {
         artworkView.contentMode = .scaleAspectFill
         artworkView.layer.cornerRadius = 8
         artworkView.backgroundColor = UIColor(white: 0.15, alpha: 1)
-        scrollView.addSubview(artworkView)
+        headerView.addSubview(artworkView)
         y += artSize + 18
 
         // Title
@@ -57,7 +70,7 @@ class NowPlayingVC: UIViewController {
         titleLabel.font = UIFont.boldSystemFont(ofSize: 16)
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 2
-        scrollView.addSubview(titleLabel)
+        headerView.addSubview(titleLabel)
         y += 46
 
         // Podcast name
@@ -66,14 +79,14 @@ class NowPlayingVC: UIViewController {
         podcastLabel.textColor = UIColor(white: 0.55, alpha: 1)
         podcastLabel.font = UIFont.systemFont(ofSize: 13)
         podcastLabel.textAlignment = .center
-        scrollView.addSubview(podcastLabel)
+        headerView.addSubview(podcastLabel)
         y += 26
 
         // Slider
         slider.frame = CGRect(x: 20, y: y, width: w - 40, height: 30)
         slider.minimumTrackTintColor = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
         slider.addTarget(self, action: #selector(sliderMoved), for: .valueChanged)
-        scrollView.addSubview(slider)
+        headerView.addSubview(slider)
         y += 28
 
         // Time labels
@@ -82,7 +95,7 @@ class NowPlayingVC: UIViewController {
         currentTimeLabel.textColor = UIColor(white: 0.5, alpha: 1)
         currentTimeLabel.font = UIFont.systemFont(ofSize: 11)
         currentTimeLabel.text = "0:00"
-        scrollView.addSubview(currentTimeLabel)
+        headerView.addSubview(currentTimeLabel)
 
         remainingLabel.frame = CGRect(x: w - 80, y: y, width: 60, height: 16)
         remainingLabel.backgroundColor = .clear
@@ -90,7 +103,7 @@ class NowPlayingVC: UIViewController {
         remainingLabel.font = UIFont.systemFont(ofSize: 11)
         remainingLabel.textAlignment = .right
         remainingLabel.text = "-0:00"
-        scrollView.addSubview(remainingLabel)
+        headerView.addSubview(remainingLabel)
         y += 28
 
         // Controls row: [-15s]  [||/>]  [+30s]
@@ -102,7 +115,7 @@ class NowPlayingVC: UIViewController {
         skipBackBtn.setTitleColor(UIColor(white: 0.65, alpha: 1), for: .normal)
         skipBackBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 13)
         skipBackBtn.addTarget(self, action: #selector(skipBack), for: .touchUpInside)
-        scrollView.addSubview(skipBackBtn)
+        headerView.addSubview(skipBackBtn)
 
         playPauseBtn.frame = CGRect(x: (w - 70) / 2, y: ctrlY, width: 70, height: ctrlH)
         playPauseBtn.setImage(UIImage(named: "pause"), for: .normal)
@@ -111,14 +124,14 @@ class NowPlayingVC: UIViewController {
         playPauseBtn.layer.borderWidth = 2
         playPauseBtn.layer.borderColor = UIColor(white: 0.4, alpha: 1).cgColor
         playPauseBtn.addTarget(self, action: #selector(playPauseTapped), for: .touchUpInside)
-        scrollView.addSubview(playPauseBtn)
+        headerView.addSubview(playPauseBtn)
 
         skipFwdBtn.frame = CGRect(x: w - 80, y: ctrlY, width: 60, height: ctrlH)
         skipFwdBtn.setTitle("+30s", for: .normal)
         skipFwdBtn.setTitleColor(UIColor(white: 0.65, alpha: 1), for: .normal)
         skipFwdBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 13)
         skipFwdBtn.addTarget(self, action: #selector(skipForward), for: .touchUpInside)
-        scrollView.addSubview(skipFwdBtn)
+        headerView.addSubview(skipFwdBtn)
 
         y = ctrlY + ctrlH + 14
 
@@ -128,10 +141,12 @@ class NowPlayingVC: UIViewController {
         speedBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
         updateSpeedBtn()
         speedBtn.addTarget(self, action: #selector(speedTapped), for: .touchUpInside)
-        scrollView.addSubview(speedBtn)
+        headerView.addSubview(speedBtn)
         y += 42
 
-        scrollView.contentSize = CGSize(width: w, height: y + 20)
+        headerView.frame = CGRect(x: 0, y: 0, width: w, height: y)
+        tableView.tableHeaderView = headerView
+        updateEditButton()
     }
 
     private func refreshFromCurrentEpisode() {
@@ -144,7 +159,7 @@ class NowPlayingVC: UIViewController {
 
     private func bindPlayer() {
         AudioPlayer.shared.onProgress = { [weak self] cur, dur in
-            guard let self = self, self.scrollView != nil else { return }
+            guard let self = self, self.headerView != nil else { return }
             self.currentTime = cur
             self.duration = dur
             if !self.slider.isTracking && dur > 0 {
@@ -159,6 +174,15 @@ class NowPlayingVC: UIViewController {
             }
         }
         AudioPlayer.shared.onStateChange = { [weak self] in self?.updatePlayPauseBtn() }
+        // Queue advance: stay on screen, swap the header contents and drop the row
+        AudioPlayer.shared.onEpisodeChange = { [weak self] in
+            guard let self = self, self.headerView != nil else { return }
+            self.lastDisplayedSecond = -1
+            self.slider.value = 0
+            self.refreshFromCurrentEpisode()
+            self.refreshQueue()
+        }
+        // Only fires when the queue is empty — otherwise the next episode takes over
         AudioPlayer.shared.onFinish      = { [weak self] in
             self?.navigationController?.popViewController(animated: true)
         }
@@ -173,6 +197,107 @@ class NowPlayingVC: UIViewController {
         let isDefault = speeds[speedIndex] == 1.0
         speedBtn.setTitleColor(isDefault ? UIColor(white: 0.45, alpha: 1) : purple, for: .normal)
     }
+
+    // MARK: - Queue
+
+    private func refreshQueue() {
+        guard tableView != nil else { return }
+        tableView.reloadData()
+        updateEditButton()
+    }
+
+    private func updateEditButton() {
+        if PlayQueue.shared.episodes.isEmpty {
+            if isEditing { setEditing(false, animated: false) }
+            navigationItem.rightBarButtonItem = nil
+        } else {
+            navigationItem.rightBarButtonItem = editButtonItem
+        }
+    }
+
+    override func setEditing(_ editing: Bool, animated: Bool) {
+        super.setEditing(editing, animated: animated)
+        tableView?.setEditing(editing, animated: animated)
+    }
+
+    func tableView(_ tv: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return PlayQueue.shared.episodes.count
+    }
+
+    func tableView(_ tv: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        return PlayQueue.shared.episodes.isEmpty ? 0 : 28
+    }
+
+    func tableView(_ tv: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard !PlayQueue.shared.episodes.isEmpty else { return nil }
+        let header = UIView(frame: CGRect(x: 0, y: 0, width: tv.bounds.width, height: 28))
+        header.backgroundColor = UIColor(red: 0.12, green: 0.12, blue: 0.17, alpha: 1)
+        let label = UILabel(frame: CGRect(x: 14, y: 6, width: tv.bounds.width - 28, height: 16))
+        label.backgroundColor = .clear
+        label.textColor = UIColor(white: 0.55, alpha: 1)
+        label.font = UIFont.boldSystemFont(ofSize: 12)
+        label.text = "UP NEXT"
+        header.addSubview(label)
+        return header
+    }
+
+    func tableView(_ tv: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let id = "queue"
+        var cell = tv.dequeueReusableCell(withIdentifier: id)
+        if cell == nil {
+            cell = UITableViewCell(style: .subtitle, reuseIdentifier: id)
+            cell?.backgroundColor = .clear
+            cell?.textLabel?.backgroundColor = .clear
+            cell?.textLabel?.textColor = .white
+            cell?.textLabel?.font = UIFont.systemFont(ofSize: 14)
+            cell?.textLabel?.numberOfLines = 2
+            cell?.detailTextLabel?.backgroundColor = .clear
+            cell?.detailTextLabel?.textColor = UIColor(white: 0.5, alpha: 1)
+            cell?.detailTextLabel?.font = UIFont.systemFont(ofSize: 11)
+            let sel = UIView()
+            sel.backgroundColor = UIColor(white: 0.2, alpha: 1)
+            cell?.selectedBackgroundView = sel
+        }
+        let ep = PlayQueue.shared.episodes[indexPath.row]
+        cell?.textLabel?.text = ep.title
+        cell?.detailTextLabel?.text = ep.podcastTitle
+        return cell!
+    }
+
+    func tableView(_ tv: UITableView, canEditRowAt indexPath: IndexPath) -> Bool { return true }
+
+    func tableView(_ tv: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool { return true }
+
+    // Swipe-to-delete when idle; plain reorder handles in edit mode (no red minus)
+    func tableView(_ tv: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCell.EditingStyle {
+        return tv.isEditing ? .none : .delete
+    }
+
+    func tableView(_ tv: UITableView, shouldIndentWhileEditingRowAt indexPath: IndexPath) -> Bool {
+        return false
+    }
+
+    func tableView(_ tv: UITableView, commit editingStyle: UITableViewCell.EditingStyle,
+                   forRowAt indexPath: IndexPath) {
+        guard editingStyle == .delete else { return }
+        PlayQueue.shared.remove(at: indexPath.row)
+        tv.deleteRows(at: [indexPath], with: .automatic)
+        // Losing the last row takes the section header and the Edit button with it
+        if PlayQueue.shared.episodes.isEmpty { refreshQueue() } else { updateEditButton() }
+    }
+
+    func tableView(_ tv: UITableView, moveRowAt from: IndexPath, to: IndexPath) {
+        PlayQueue.shared.move(from: from.row, to: to.row)
+    }
+
+    func tableView(_ tv: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tv.deselectRow(at: indexPath, animated: true)
+        let ep = PlayQueue.shared.episodes[indexPath.row]
+        PlayQueue.shared.remove(at: indexPath.row)
+        AudioPlayer.shared.play(episode: ep)
+    }
+
+    // MARK: - Transport
 
     @objc private func playPauseTapped() {
         AudioPlayer.shared.isPlaying ? AudioPlayer.shared.pause() : AudioPlayer.shared.resume()
@@ -214,8 +339,9 @@ class NowPlayingVC: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        AudioPlayer.shared.onProgress    = nil
-        AudioPlayer.shared.onStateChange = nil
-        AudioPlayer.shared.onFinish      = nil
+        AudioPlayer.shared.onProgress      = nil
+        AudioPlayer.shared.onStateChange   = nil
+        AudioPlayer.shared.onFinish        = nil
+        AudioPlayer.shared.onEpisodeChange = nil
     }
 }

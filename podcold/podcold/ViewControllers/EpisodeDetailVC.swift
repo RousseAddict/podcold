@@ -4,7 +4,10 @@ class EpisodeDetailVC: UIViewController {
     private let episode: Episode
     private let podcast: Podcast
     private var downloadBtn: UIButton!
-    private var removeBtn: UIButton!
+    private var queueBtn: UIButton!
+
+    private static let purple = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
+    private static let red    = UIColor(red: 0.85, green: 0.25, blue: 0.25, alpha: 1)
 
     init(episode: Episode, podcast: Podcast) {
         self.episode = episode; self.podcast = podcast
@@ -53,43 +56,43 @@ class EpisodeDetailVC: UIViewController {
         scrollView.addSubview(authorLabel)
         y += 32
 
-        // Play button
+        // Action buttons — one metric for all three: 20pt margins, 12pt gap,
+        // so the two halves and the full-width row line up exactly.
+        let btnH: CGFloat = 40
+        let colW = (w - 52) / 2
+
         let playBtn = UIButton(type: .custom)
-        playBtn.frame = CGRect(x: (w - 160) / 2, y: y, width: 160, height: 44)
-        playBtn.setTitle("> Play", for: .normal)
+        playBtn.frame = CGRect(x: 20, y: y, width: colW, height: btnH)
+        playBtn.setTitle("Play", for: .normal)
         playBtn.setTitleColor(.white, for: .normal)
-        playBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 17)
-        playBtn.backgroundColor = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
-        playBtn.layer.cornerRadius = 22
+        playBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 15)
+        playBtn.backgroundColor = EpisodeDetailVC.purple
+        playBtn.layer.cornerRadius = btnH / 2
         playBtn.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
         scrollView.addSubview(playBtn)
-        y += 52
 
-        // Download + Remove buttons — side by side, centred as a pair
-        // Total pair width: 120 (download) + 12 (gap) + 100 (remove) = 232
-        let pairX = (w - 232) / 2
+        queueBtn = UIButton(type: .custom)
+        queueBtn.frame = CGRect(x: 32 + colW, y: y, width: colW, height: btnH)
+        queueBtn.layer.cornerRadius = btnH / 2
+        queueBtn.layer.borderWidth = 1
+        queueBtn.titleLabel?.font = UIFont.systemFont(ofSize: 15)
+        queueBtn.addTarget(self, action: #selector(queueTapped), for: .touchUpInside)
+        scrollView.addSubview(queueBtn)
+        updateQueueButton()
+        y += btnH + 10
 
+        // One button cycling Download -> progress -> Remove Download, so the row is
+        // never half-empty and there is no dead "Offline" button next to a Remove.
         downloadBtn = UIButton(type: .custom)
-        downloadBtn.frame = CGRect(x: pairX, y: y, width: 120, height: 34)
-        downloadBtn.layer.cornerRadius = 17
+        downloadBtn.frame = CGRect(x: 20, y: y, width: w - 40, height: btnH)
+        downloadBtn.layer.cornerRadius = btnH / 2
         downloadBtn.layer.borderWidth = 1
-        downloadBtn.titleLabel?.font = UIFont.systemFont(ofSize: 14)
+        downloadBtn.titleLabel?.font = UIFont.systemFont(ofSize: 15)
         downloadBtn.addTarget(self, action: #selector(downloadTapped), for: .touchUpInside)
         scrollView.addSubview(downloadBtn)
 
-        removeBtn = UIButton(type: .custom)
-        removeBtn.frame = CGRect(x: pairX + 132, y: y, width: 100, height: 34)
-        removeBtn.setTitle("Remove", for: .normal)
-        removeBtn.setTitleColor(UIColor(red: 0.85, green: 0.25, blue: 0.25, alpha: 1), for: .normal)
-        removeBtn.layer.cornerRadius = 17
-        removeBtn.layer.borderWidth = 1
-        removeBtn.layer.borderColor = UIColor(red: 0.85, green: 0.25, blue: 0.25, alpha: 1).cgColor
-        removeBtn.titleLabel?.font = UIFont.systemFont(ofSize: 14)
-        removeBtn.addTarget(self, action: #selector(removeTapped), for: .touchUpInside)
-        scrollView.addSubview(removeBtn)
-
         updateDownloadButton(progress: nil)
-        y += 46
+        y += btnH + 12
 
         if !episode.summary.isEmpty {
             let sep = UIView(frame: CGRect(x: 20, y: y, width: w - 40, height: 1))
@@ -123,41 +126,58 @@ class EpisodeDetailVC: UIViewController {
     }
 
     private func updateDownloadButton(progress: Float?) {
-        let purple = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
         if let p = progress {
             downloadBtn.setTitle("\(Int(p * 100))%", for: .normal)
             downloadBtn.setTitleColor(UIColor(white: 0.6, alpha: 1), for: .normal)
             downloadBtn.layer.borderColor = UIColor(white: 0.3, alpha: 1).cgColor
             downloadBtn.isEnabled = false
-            removeBtn.isHidden = true
         } else if episode.localPath() != nil {
-            downloadBtn.setTitle("Offline", for: .normal)
-            downloadBtn.setTitleColor(UIColor(white: 0.45, alpha: 1), for: .normal)
-            downloadBtn.layer.borderColor = UIColor(white: 0.25, alpha: 1).cgColor
-            downloadBtn.isEnabled = false
-            removeBtn.isHidden = false
+            downloadBtn.setTitle("Remove Download", for: .normal)
+            downloadBtn.setTitleColor(EpisodeDetailVC.red, for: .normal)
+            downloadBtn.layer.borderColor = EpisodeDetailVC.red.cgColor
+            downloadBtn.isEnabled = true
         } else {
             downloadBtn.setTitle("Download", for: .normal)
-            downloadBtn.setTitleColor(purple, for: .normal)
-            downloadBtn.layer.borderColor = purple.cgColor
+            downloadBtn.setTitleColor(EpisodeDetailVC.purple, for: .normal)
+            downloadBtn.layer.borderColor = EpisodeDetailVC.purple.cgColor
             downloadBtn.isEnabled = true
-            removeBtn.isHidden = true
         }
     }
 
+    private func updateQueueButton() {
+        let purple = EpisodeDetailVC.purple
+        if PlayQueue.shared.contains(guid: episode.guid) {
+            queueBtn.setTitle("Queued", for: .normal)
+            queueBtn.setTitleColor(UIColor(white: 0.45, alpha: 1), for: .normal)
+            queueBtn.layer.borderColor = UIColor(white: 0.25, alpha: 1).cgColor
+        } else {
+            queueBtn.setTitle("+ Queue", for: .normal)
+            queueBtn.setTitleColor(purple, for: .normal)
+            queueBtn.layer.borderColor = purple.cgColor
+        }
+    }
+
+    @objc private func queueTapped() {
+        if PlayQueue.shared.contains(guid: episode.guid) {
+            PlayQueue.shared.remove(guid: episode.guid)
+        } else {
+            PlayQueue.shared.add(episode)
+        }
+        updateQueueButton()
+    }
+
+    // Same button in all three states — the title says which one is live
     @objc private func downloadTapped() {
+        if let path = episode.localPath() {
+            try? FileManager.default.removeItem(atPath: path)
+            Episode.removeFromDownloads(guid: episode.guid)
+            updateDownloadButton(progress: nil)
+            return
+        }
         updateDownloadButton(progress: 0)
         EpisodeDownloader.download(episode: episode,
             progress: { [weak self] p in self?.updateDownloadButton(progress: p) },
             completion: { [weak self] _ in self?.updateDownloadButton(progress: nil) })
-    }
-
-    @objc private func removeTapped() {
-        if let path = episode.localPath() {
-            try? FileManager.default.removeItem(atPath: path)
-        }
-        Episode.removeFromDownloads(guid: episode.guid)
-        updateDownloadButton(progress: nil)
     }
 
     private static func stripHTML(_ s: String) -> String {
@@ -192,6 +212,8 @@ class EpisodeDetailVC: UIViewController {
     }
 
     @objc private func playTapped() {
+        // Playing it now takes it out of "up next"
+        PlayQueue.shared.remove(guid: episode.guid)
         AudioPlayer.shared.play(episode: episode)
         navigationController?.pushViewController(NowPlayingVC(), animated: true)
     }

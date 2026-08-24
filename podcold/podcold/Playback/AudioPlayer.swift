@@ -11,6 +11,8 @@ class AudioPlayer: NSObject {
     var onProgress: ((Double, Double) -> Void)?
     var onFinish: (() -> Void)?
     var onStateChange: (() -> Void)?
+    // Fired when a different episode becomes current (manual play or queue advance).
+    var onEpisodeChange: (() -> Void)?
     private var progressTick = 0  // counts 1-s ticks; used to throttle writes
     private static let bgQueue = DispatchQueue(label: "com.podcold.audiobg")
 
@@ -30,6 +32,7 @@ class AudioPlayer: NSObject {
         addToRecents(episode)
         stop()
         currentEpisode = episode
+        onEpisodeChange?()
 
         // If already downloaded, play local file directly — no cert issues
         if let localPath = episode.localPath() {
@@ -157,6 +160,12 @@ class AudioPlayer: NSObject {
         currentEpisode?.savePosition(0)
         if let guid = currentEpisode?.guid { Episode.markPlayed(guid: guid) }
         currentEpisode?.autoDeleteIfEnabled()
+        // Queued episodes take over instead of tearing the player down. onFinish is
+        // what makes NowPlayingVC pop itself, so it only fires when nothing is left.
+        if let next = PlayQueue.shared.next() {
+            play(episode: next)
+            return
+        }
         onFinish?()
         onStateChange?()
     }
