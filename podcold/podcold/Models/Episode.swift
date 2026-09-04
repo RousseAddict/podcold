@@ -17,6 +17,39 @@ class Episode: NSObject {
         UserDefaults.standard.set(seconds, forKey: "pos_\(guid)")
     }
 
+    // MARK: - Duration
+    // Feeds are inconsistent: itunes:duration may be plain seconds ("3600"),
+    // "MM:SS" or "HH:MM:SS", and plenty of feeds omit it entirely. The real
+    // length is only known once AVPlayer has loaded the asset, so it is cached
+    // per guid the first time playback reports it.
+
+    func savedDuration() -> Double {
+        return UserDefaults.standard.double(forKey: "dur_\(guid)")
+    }
+
+    func saveDuration(_ seconds: Double) {
+        // Written from the 1-s time observer — only touch UserDefaults on change
+        guard seconds > 0, abs(savedDuration() - seconds) > 1 else { return }
+        UserDefaults.standard.set(seconds, forKey: "dur_\(guid)")
+    }
+
+    // Best known total length in seconds; 0 when unknown.
+    func totalDuration() -> Double {
+        let cached = savedDuration()
+        return cached > 0 ? cached : Episode.parseDuration(duration)
+    }
+
+    static func parseDuration(_ s: String) -> Double {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return 0 }
+        var total: Double = 0
+        for part in t.components(separatedBy: ":") {
+            guard let v = Double(part) else { return 0 }
+            total = total * 60 + v
+        }
+        return total
+    }
+
     // MARK: - Played tracking
     // savedPosition() alone cannot distinguish "never started" from "marked done"
     // (both are 0), so completed episodes are tracked separately by guid.

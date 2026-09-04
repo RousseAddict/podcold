@@ -62,7 +62,12 @@ class AudioPlayer: NSObject {
                 let dur = CMTimeGetSeconds(item.duration)
                 self.progressTick += 1
                 // Save position every 5s — avoids UserDefaults plist-flush stalls on main thread
-                if self.progressTick % 5 == 0 { self.currentEpisode?.savePosition(cur) }
+                if self.progressTick % 5 == 0 {
+                    self.currentEpisode?.savePosition(cur)
+                    // Cache the real length — itunes:duration is often missing or
+                    // wrong, and the Continue Listening progress bar needs a total
+                    if !dur.isNaN { self.currentEpisode?.saveDuration(dur) }
+                }
                 self.onProgress?(cur, dur.isNaN ? 0 : dur)
                 // Update lock-screen scrubber every 5s — iOS interpolates elapsed in-between
                 if self.progressTick % 5 == 0 {

@@ -186,11 +186,15 @@ class HomeVC: UIViewController {
         lbl.numberOfLines = 3
         card.addSubview(lbl)
 
+        // Needs the episode's real length — a hardcoded assumed duration made
+        // every episode past that mark read as complete.
         let pos = episode.savedPosition()
-        if pos > 0 {
+        let total = episode.totalDuration()
+        if pos > 0 && total > 0 {
             let bar = UIView(frame: CGRect(x: 0, y: 98, width: 120, height: 3))
             bar.backgroundColor = UIColor(white: 0.2, alpha: 1)
-            let fill = UIView(frame: CGRect(x: 0, y: 0, width: min(120, CGFloat(pos / 1800) * 120), height: 3))
+            let fraction = min(1.0, pos / total)
+            let fill = UIView(frame: CGRect(x: 0, y: 0, width: CGFloat(fraction) * 120, height: 3))
             fill.backgroundColor = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
             bar.addSubview(fill)
             card.addSubview(bar)

@@ -160,12 +160,10 @@ class FeedParser: NSObject, XMLParserDelegate {
             if currentEpisode?.pubDate.isEmpty == true { currentEpisode?.pubDate = text }
         case "itunes:duration":
             currentEpisode?.duration = text
-        case "itunes:summary" where currentEpisode?.summary.isEmpty == true:
-            currentEpisode?.summary = text
-        case "description" where currentEpisode?.summary.isEmpty == true:
-            currentEpisode?.summary = text
-        case "content", "content:encoded" where currentEpisode?.summary.isEmpty == true:
-            currentEpisode?.summary = text
+        // First one wins. A `where` on a multi-pattern case only guards the last
+        // pattern, so "content" used to clobber an already-parsed summary.
+        case "itunes:summary", "description", "content", "content:encoded":
+            if currentEpisode?.summary.isEmpty == true { currentEpisode?.summary = text }
         default: break
         }
     }

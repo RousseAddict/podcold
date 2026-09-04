@@ -180,35 +180,103 @@ class EpisodeDetailVC: UIViewController {
             completion: { [weak self] _ in self?.updateDownloadButton(progress: nil) })
     }
 
+    // Show notes are HTML with no literal newlines — the paragraph structure
+    // lives entirely in the <p>/<br>/<li> tags. Dropping every tag therefore
+    // collapsed the whole description into one run-on block, so block-level
+    // tags are turned into line breaks before the rest are discarded.
     private static func stripHTML(_ s: String) -> String {
-        // Remove tags
         var out = ""
+        var tag = ""
         var inTag = false
         for c in s {
-            if c == "<" { inTag = true }
-            else if c == ">" { inTag = false }
-            else if !inTag { out.append(c) }
-        }
-        // Decode common HTML entities
-        out = out.replacingOccurrences(of: "&amp;",  with: "&")
-        out = out.replacingOccurrences(of: "&lt;",   with: "<")
-        out = out.replacingOccurrences(of: "&gt;",   with: ">")
-        out = out.replacingOccurrences(of: "&quot;", with: "\"")
-        out = out.replacingOccurrences(of: "&#39;",  with: "'")
-        out = out.replacingOccurrences(of: "&nbsp;", with: " ")
-        // Collapse runs of whitespace/newlines left by removed block tags
-        var result = ""
-        var prevNewline = false
-        for c in out {
-            if c == "\n" || c == "\r" {
-                if !prevNewline { result.append("\n") }
-                prevNewline = true
+            if c == "<" {
+                inTag = true
+                tag = ""
+            } else if c == ">" && inTag {
+                inTag = false
+                out += breakFor(tag: tag)
+            } else if inTag {
+                tag.append(c)
             } else {
-                prevNewline = false
-                result.append(c)
+                out.append(c)
             }
         }
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return collapse(decodeEntities(out))
+    }
+
+    // "" for inline tags (<a>, <em>, <strong>…), a line break for block ones.
+    private static func breakFor(tag: String) -> String {
+        var t = tag.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let closing = t.hasPrefix("/")
+        if closing { t.removeFirst() }
+        // Stop at the first attribute or at a self-closing slash: "br /" -> "br"
+        let name = t.components(separatedBy: CharacterSet(charactersIn: " \t\n\r/")).first ?? ""
+        switch name {
+        case "br":
+            return "\n"
+        case "li":
+            return closing ? "" : "\n\u{2022} "
+        case "p", "div", "blockquote", "pre", "ul", "ol", "table", "tr",
+             "h1", "h2", "h3", "h4", "h5", "h6":
+            return "\n\n"
+        default:
+            return ""
+        }
+    }
+
+    private static func decodeEntities(_ s: String) -> String {
+        var out = decodeNumericEntities(s)
+        // &amp; must come last, or "&amp;lt;" would wrongly end up as "<"
+        let named = [("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""),
+                     ("&apos;", "'"), ("&nbsp;", " "),
+                     ("&hellip;", "\u{2026}"), ("&mdash;", "\u{2014}"),
+                     ("&ndash;", "\u{2013}"),
+                     ("&rsquo;", "\u{2019}"), ("&lsquo;", "\u{2018}"),
+                     ("&rdquo;", "\u{201D}"), ("&ldquo;", "\u{201C}"),
+                     ("&amp;", "&")]
+        for (entity, replacement) in named {
+            out = out.replacingOccurrences(of: entity, with: replacement)
+        }
+        return out
+    }
+
+    // Feeds lean heavily on &#8217; / &#x2019; for typographic punctuation —
+    // undecoded these showed up as literal noise mid-sentence.
+    private static func decodeNumericEntities(_ s: String) -> String {
+        let parts = s.components(separatedBy: "&#")
+        guard parts.count > 1 else { return s }
+        var out = parts[0]
+        for part in parts.dropFirst() {
+            guard let semi = part.firstIndex(of: ";") else { out += "&#" + part; continue }
+            var body = String(part[part.startIndex..<semi])
+            let rest = String(part[part.index(after: semi)...])
+            let value: UInt32?
+            if body.hasPrefix("x") || body.hasPrefix("X") {
+                body.removeFirst()
+                value = UInt32(body, radix: 16)
+            } else {
+                value = UInt32(body, radix: 10)
+            }
+            if let v = value, let scalar = UnicodeScalar(v) {
+                out += String(Character(scalar)) + rest
+            } else {
+                out += "&#" + part
+            }
+        }
+        return out
+    }
+
+    // Trim each line and allow at most one blank line between paragraphs.
+    private static func collapse(_ s: String) -> String {
+        let normalized = s.replacingOccurrences(of: "\r\n", with: "\n")
+                          .replacingOccurrences(of: "\r", with: "\n")
+        var lines: [String] = []
+        for raw in normalized.components(separatedBy: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty && (lines.last?.isEmpty ?? true) { continue }
+            lines.append(line)
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @objc private func playTapped() {
