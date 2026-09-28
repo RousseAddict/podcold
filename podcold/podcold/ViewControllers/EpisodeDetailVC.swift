@@ -48,12 +48,23 @@ class EpisodeDetailVC: UIViewController {
         scrollView.addSubview(titleLabel)
         y += 54
 
-        let authorLabel = UILabel(frame: CGRect(x: 20, y: y, width: w - 40, height: 20))
-        authorLabel.text = podcast.author
-        authorLabel.textColor = UIColor(white: 0.55, alpha: 1)
-        authorLabel.backgroundColor = .clear
-        authorLabel.font = UIFont.systemFont(ofSize: 13)
-        scrollView.addSubview(authorLabel)
+        // The podcast name, not the publisher. Tappable when we know the feed —
+        // episodes reached from Home/Downloads can carry a stub Podcast whose
+        // feedUrl is empty, and there is no list to open for those.
+        let showName = podcast.title.isEmpty ? episode.podcastTitle : podcast.title
+        let canOpenList = !podcast.feedUrl.isEmpty
+        // A UIButton, not a label with a tap recognizer: on iOS 6 a recognizer
+        // on a scroll view subview fires alongside the buttons below it.
+        let podcastBtn = UIButton(type: .custom)
+        podcastBtn.frame = CGRect(x: 20, y: y, width: w - 40, height: 20)
+        podcastBtn.contentHorizontalAlignment = .left
+        podcastBtn.setTitle(showName, for: .normal)
+        podcastBtn.setTitleColor(canOpenList ? EpisodeDetailVC.purple : UIColor(white: 0.55, alpha: 1),
+                                 for: .normal)
+        podcastBtn.titleLabel?.font = UIFont.systemFont(ofSize: 13)
+        podcastBtn.isEnabled = canOpenList
+        podcastBtn.addTarget(self, action: #selector(podcastTapped), for: .touchUpInside)
+        scrollView.addSubview(podcastBtn)
         y += 32
 
         // Action buttons — one metric for all three: 20pt margins, 12pt gap,
@@ -277,6 +288,20 @@ class EpisodeDetailVC: UIViewController {
             lines.append(line)
         }
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // Coming from the podcast's own list, pushing another one would stack
+    // List -> Detail -> List and leave Back pointing at the episode we just
+    // left. Go back to the existing screen when there is one.
+    @objc private func podcastTapped() {
+        guard let nav = navigationController else { return }
+        if let existing = nav.viewControllers.reversed().first(where: {
+            ($0 as? EpisodeListVC)?.podcast.feedUrl == podcast.feedUrl
+        }) {
+            nav.popToViewController(existing, animated: true)
+            return
+        }
+        nav.pushViewController(EpisodeListVC(podcast: podcast), animated: true)
     }
 
     @objc private func playTapped() {

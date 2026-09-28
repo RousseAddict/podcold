@@ -1,7 +1,8 @@
 import UIKit
 
 class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegate {
-    private let podcast: Podcast
+    // Read by EpisodeDetailVC to find an already-pushed list for the same feed
+    let podcast: Podcast
     private var episodes: [Episode] = []
     private let tableView = UITableView()
     private var spinner: UIActivityIndicatorView!
