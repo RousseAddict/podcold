@@ -10,6 +10,9 @@ class HomeVC: UIViewController {
     private var builtUpNextGuids: [String] = []
     private var inProgressGuids: Set<String> = []
     private var rebuildScheduled = false
+    private var builtSyncing = false
+    private weak var newEpisodesHeader: UILabel?
+    private weak var syncSpinner: UIActivityIndicatorView?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -33,7 +36,10 @@ class HomeVC: UIViewController {
         inProgressGuids = Set(recentEpisodes.map { $0.guid })
         upNext = UpNextManager.shared.cachedUpNext(podcasts: podcasts, inProgressGuids: inProgressGuids)
         UpNextManager.shared.onUpdate = { [weak self] in self?.scheduleUpNextRebuild() }
+        // Bound after refreshStale: that call flips the state synchronously, and the
+        // spinner is already accounted for by viewDidAppear's build below.
         UpNextManager.shared.refreshStale(podcasts: podcasts, inProgressGuids: inProgressGuids)
+        UpNextManager.shared.onSyncStateChange = { [weak self] in self?.updateSyncIndicator() }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -42,6 +48,7 @@ class HomeVC: UIViewController {
         // results still land in LatestEpisodeCache, and viewDidAppear's dirty check
         // picks them up on return. Rebuilding an off-screen hierarchy is pure waste.
         UpNextManager.shared.onUpdate = nil
+        UpNextManager.shared.onSyncStateChange = nil
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -49,11 +56,16 @@ class HomeVC: UIViewController {
         let newUrls   = podcasts.map { $0.feedUrl }
         let newGuids  = recentEpisodes.map { $0.guid }
         let newUpNext = upNext.map { $0.1.guid }
-        guard newUrls != builtPodcastUrls || newGuids != builtRecentGuids || newUpNext != builtUpNextGuids else { return }
-        builtPodcastUrls  = newUrls
-        builtRecentGuids  = newGuids
-        builtUpNextGuids  = newUpNext
-        rebuildLayout()
+        if newUrls != builtPodcastUrls || newGuids != builtRecentGuids || newUpNext != builtUpNextGuids {
+            builtPodcastUrls  = newUrls
+            builtRecentGuids  = newGuids
+            builtUpNextGuids  = newUpNext
+            rebuildLayout()
+        } else {
+            // Nothing to rebuild, but a batch may have started or finished while the
+            // user was on another screen.
+            updateSyncIndicator()
+        }
     }
 
     // MARK: - Layout
@@ -81,6 +93,8 @@ class HomeVC: UIViewController {
 
     private func rebuildLayout() {
         scrollView.subviews.forEach { $0.removeFromSuperview() }
+        newEpisodesHeader = nil
+        syncSpinner       = nil
         let w = UIScreen.main.bounds.width
         var y: CGFloat = 12
 
@@ -104,24 +118,33 @@ class HomeVC: UIViewController {
             y += stripH + 16
         }
 
-        if !upNext.isEmpty {
-            scrollView.addSubview(sectionHeader("New Episodes", y: y, w: w))
+        // Keep the header (and its spinner) up while a batch is running even with no
+        // cards yet — that first stretch, when the lane is still empty, is exactly
+        // when the user has no other sign that anything is happening.
+        builtSyncing = UpNextManager.shared.isSyncing
+        if !upNext.isEmpty || builtSyncing {
+            let header = sectionHeader("New Episodes", y: y, w: w)
+            scrollView.addSubview(header)
+            newEpisodesHeader = header
+            if builtSyncing { showSyncSpinner() }
             y += 34
 
-            let stripH: CGFloat = 158
-            let strip = UIScrollView(frame: CGRect(x: 0, y: y, width: w, height: stripH))
-            strip.showsHorizontalScrollIndicator = false
-            strip.showsVerticalScrollIndicator   = false
-            var cx: CGFloat = 12
-            for (i, pair) in upNext.enumerated() {
-                let card = upNextCard(pair.1, podcast: pair.0, index: i)
-                card.frame = CGRect(x: cx, y: 4, width: 120, height: 150)
-                strip.addSubview(card)
-                cx += 130
+            if !upNext.isEmpty {
+                let stripH: CGFloat = 158
+                let strip = UIScrollView(frame: CGRect(x: 0, y: y, width: w, height: stripH))
+                strip.showsHorizontalScrollIndicator = false
+                strip.showsVerticalScrollIndicator   = false
+                var cx: CGFloat = 12
+                for (i, pair) in upNext.enumerated() {
+                    let card = upNextCard(pair.1, podcast: pair.0, index: i)
+                    card.frame = CGRect(x: cx, y: 4, width: 120, height: 150)
+                    strip.addSubview(card)
+                    cx += 130
+                }
+                strip.contentSize = CGSize(width: cx + 12, height: stripH)
+                scrollView.addSubview(strip)
+                y += stripH + 16
             }
-            strip.contentSize = CGSize(width: cx + 12, height: stripH)
-            scrollView.addSubview(strip)
-            y += stripH + 16
         }
 
         scrollView.addSubview(sectionHeader("My Podcasts", y: y, w: w))
@@ -151,6 +174,45 @@ class HomeVC: UIViewController {
         }
 
         scrollView.contentSize = CGSize(width: w, height: y + 80)
+    }
+
+    // MARK: - Sync indicator
+
+    private func updateSyncIndicator() {
+        let syncing = UpNextManager.shared.isSyncing
+        guard syncing != builtSyncing else { return }
+        builtSyncing = syncing
+        // With no cards yet the header only exists while syncing, so its appearing
+        // or disappearing shifts everything below it — that needs a full pass.
+        guard !upNext.isEmpty else { rebuildLayout(); return }
+        if syncing { showSyncSpinner() } else { hideSyncSpinner() }
+    }
+
+    private func showSyncSpinner() {
+        guard let header = newEpisodesHeader, syncSpinner == nil else { return }
+
+        // The header label is full-width, so measure the text to find where it ends.
+        let sizing = UILabel()
+        sizing.font = header.font
+        sizing.text = header.text
+        sizing.sizeToFit()
+
+        // .white (raw value 0) rather than the modern .medium — the iOS 6 runtime
+        // doesn't know the newer style constants. Scaled down so the 20pt indicator
+        // sits inside an 11pt header line without dwarfing it.
+        let spinner = UIActivityIndicatorView(style: .white)
+        spinner.color = header.textColor
+        spinner.transform = CGAffineTransform(scaleX: 0.7, y: 0.7)
+        spinner.center = CGPoint(x: sizing.frame.width + 11, y: header.bounds.midY)
+        spinner.startAnimating()
+        header.addSubview(spinner)
+        syncSpinner = spinner
+    }
+
+    private func hideSyncSpinner() {
+        syncSpinner?.stopAnimating()
+        syncSpinner?.removeFromSuperview()
+        syncSpinner = nil
     }
 
     // MARK: - Subview factories

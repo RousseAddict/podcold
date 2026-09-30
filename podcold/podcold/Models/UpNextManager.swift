@@ -32,6 +32,12 @@ class UpNextManager {
     // Called after each feed in the batch resolves, so HomeVC can incrementally re-render.
     var onUpdate: (() -> Void)?
 
+    // Drives HomeVC's "New Episodes" sync spinner. True from the moment a batch is
+    // queued until its last feed resolves — including while suspend() has the batch
+    // parked, since the remaining feeds are still coming.
+    var isSyncing: Bool { return refreshing || !pending.isEmpty }
+    var onSyncStateChange: (() -> Void)?
+
     func cachedUpNext(podcasts: [Podcast], inProgressGuids: Set<String>) -> [(Podcast, Episode)] {
         var results: [(Podcast, Episode)] = []
         for podcast in podcasts {
@@ -48,13 +54,14 @@ class UpNextManager {
         guard !refreshing else { return }
         self.inProgressGuids = inProgressGuids
         pending = podcasts.filter { LatestEpisodeCache.isStale(feedUrl: $0.feedUrl) }
+        onSyncStateChange?()
         processNext()
     }
 
     private func processNext() {
+        guard !pending.isEmpty else { refreshing = false; onSyncStateChange?(); return }
         // Yield the feed lane; resume() picks the batch back up where it stopped.
         guard !paused else { refreshing = false; return }
-        guard !pending.isEmpty else { refreshing = false; return }
         refreshing = true
         let podcast = pending.removeFirst()
         FeedParser.parse(feedUrl: podcast.feedUrl, podcastTitle: podcast.title) { [weak self] episodes in
