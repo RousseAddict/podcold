@@ -25,21 +25,29 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     // MARK: - UITableViewDataSource
 
-    func numberOfSections(in tableView: UITableView) -> Int { return 2 }
+    func numberOfSections(in tableView: UITableView) -> Int { return 3 }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return section == 0 ? 1 : 2
+        return section == 2 ? 2 : 1
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        return section == 0 ? "Downloads" : "Backup & Restore"
+        switch section {
+        case 0:  return "Downloads"
+        case 1:  return "New Episodes"
+        default: return "Backup & Restore"
+        }
     }
 
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        if section == 0 {
+        switch section {
+        case 0:
             return "When on, the downloaded file is deleted once an episode finishes playing or you tap Done."
+        case 1:
+            return "How many of a podcast's most recent unplayed episodes can be offered. Once you tap Done on all of them, that podcast stays quiet until it publishes something new."
+        default:
+            return "To migrate to a new device: export, share via email, then copy the .json file to the new device via iTunes/Finder File Sharing and tap Import."
         }
-        return "To migrate to a new device: export, share via email, then copy the .json file to the new device via iTunes/Finder File Sharing and tap Import."
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -61,6 +69,20 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
             return cell
         }
 
+        if indexPath.section == 1 {
+            cell.textLabel?.text = "Max new episodes"
+            cell.detailTextLabel?.text = "\(UpNextManager.maxNewEpisodes)"
+            cell.selectionStyle = .none
+            let stepper = UIStepper()
+            stepper.minimumValue = Double(UpNextManager.maxNewEpisodesRange.lowerBound)
+            stepper.maximumValue = Double(UpNextManager.maxNewEpisodesRange.upperBound)
+            stepper.stepValue    = 1
+            stepper.value        = Double(UpNextManager.maxNewEpisodes)
+            stepper.addTarget(self, action: #selector(maxNewEpisodesChanged(_:)), for: .valueChanged)
+            cell.accessoryView = stepper
+            return cell
+        }
+
         if indexPath.row == 0 {
             cell.textLabel?.text = "Export backup"
             let count = Podcast.loadSubscriptions().count
@@ -77,7 +99,7 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard indexPath.section == 1 else { return }
+        guard indexPath.section == 2 else { return }
         if indexPath.row == 0 { handleExport() }
         else                  { handleImport() }
     }
@@ -86,6 +108,19 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
 
     @objc private func autoDeleteChanged(_ sender: UISwitch) {
         Episode.autoDeleteFinished = sender.isOn
+    }
+
+    // MARK: - New Episodes
+
+    @objc private func maxNewEpisodesChanged(_ sender: UIStepper) {
+        UpNextManager.maxNewEpisodes = Int(sender.value)
+        // Each cache entry is one already-chosen episode, re-checked only every 45 min,
+        // so the new window would go unfelt until then. Clearing forces a re-parse.
+        LatestEpisodeCache.clear()
+        // Repainting just the label, not reloadSections: rebuilding the cell would swap
+        // out the stepper the finger is still on and kill its press-and-hold repeat.
+        let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 1))
+        cell?.detailTextLabel?.text = "\(Int(sender.value))"
     }
 
     // MARK: - Export

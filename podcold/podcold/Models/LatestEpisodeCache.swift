@@ -32,6 +32,13 @@ class LatestEpisodeCache {
         UserDefaults.standard.set(raw, forKey: key)
     }
 
+    // Forces every feed to be re-checked on the next refresh. Needed when the rule that
+    // decides *which* episode qualifies changes — the stored entry is one already-chosen
+    // episode, so nothing short of a re-parse can re-apply a new rule to it.
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+
     static func remove(feedUrl: String) {
         var raw = loadRaw()
         raw.removeValue(forKey: feedUrl)

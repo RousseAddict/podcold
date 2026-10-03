@@ -12,8 +12,32 @@ class UpNextManager {
     static let shared = UpNextManager()
     private init() {}
 
+    // How far back into a feed the lane is willing to look. Tapping Done marks an episode
+    // played and drops its cache entry, so the next refresh walks one step further back —
+    // unbounded, that keeps offering older episodes until the whole feed history is used
+    // up. With a window of 2, a podcast with 3 unplayed episodes goes quiet after two
+    // Dones and only speaks up again when a genuinely new episode slides into the window.
+    static let maxNewEpisodesKey = "max_new_episodes"
+    static let maxNewEpisodesRange = 1...10
+    private static let maxNewEpisodesDefault = 3
+
+    static var maxNewEpisodes: Int {
+        // integer(forKey:) returns 0 when unset, which is indistinguishable from a real
+        // 0 — but 0 is outside the allowed range, so it can only mean "never set".
+        get {
+            let v = UserDefaults.standard.integer(forKey: maxNewEpisodesKey)
+            return maxNewEpisodesRange.contains(v) ? v : maxNewEpisodesDefault
+        }
+        set { UserDefaults.standard.set(newValue, forKey: maxNewEpisodesKey) }
+    }
+
     private var refreshing = false
-    private var paused = false
+    // Counted, not a bool: overlapping user-facing requests are normal — EpisodeListVC
+    // can have its initial load() and a loadMore() re-fetch outstanding at once — and a
+    // bool let the first completion un-pause the batch while the second request was
+    // still waiting its turn on the serial feed lane.
+    private var suspendCount = 0
+    private var paused: Bool { return suspendCount > 0 }
     private var pending: [Podcast] = []
     private var inProgressGuids: Set<String> = []
 
@@ -21,12 +45,12 @@ class UpNextManager {
     // screen the user is actually looking at would queue behind every remaining
     // subscription. Yielding between feeds bounds that wait to the one download
     // already in flight instead of all of them.
-    func suspend() { paused = true }
+    func suspend() { suspendCount += 1 }
 
     func resume() {
-        guard paused else { return }
-        paused = false
-        if !refreshing { processNext() }
+        guard suspendCount > 0 else { return }
+        suspendCount -= 1
+        if suspendCount == 0 && !refreshing { processNext() }
     }
 
     // Called after each feed in the batch resolves, so HomeVC can incrementally re-render.
@@ -66,7 +90,8 @@ class UpNextManager {
         let podcast = pending.removeFirst()
         FeedParser.parse(feedUrl: podcast.feedUrl, podcastTitle: podcast.title) { [weak self] episodes in
             guard let self = self else { return }
-            let qualifying = episodes.first {
+            // Feed order is newest-first, so the window is simply the head of the list.
+            let qualifying = episodes.prefix(UpNextManager.maxNewEpisodes).first {
                 !self.inProgressGuids.contains($0.guid) && !Episode.isPlayed(guid: $0.guid)
             }
             LatestEpisodeCache.store(feedUrl: podcast.feedUrl, episode: qualifying)
