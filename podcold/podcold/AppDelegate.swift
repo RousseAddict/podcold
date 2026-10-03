@@ -21,6 +21,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         miniBar.isHidden = true
         window?.addSubview(miniBar)
 
+        // Clear ".part" sidecars left behind by downloads a crash or force-quit cut short.
+        EpisodeDownloader.sweepStalePartFiles()
+
         return true
     }
 

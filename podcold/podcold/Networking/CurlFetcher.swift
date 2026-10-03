@@ -169,8 +169,16 @@ class CurlFetcher {
         _ = CurlFetcher.curlGlobalInit  // same as syncFetchData
         guard let h = CurlFetcher.downloadLane.borrowHandle() else { return false }
 
-        FileManager.default.createFile(atPath: outputPath, contents: nil, attributes: nil)
-        guard let fh = FileHandle(forWritingAtPath: outputPath) else { return false }
+        // Stream into a ".part" sidecar and only move it into place once the
+        // transfer has actually succeeded. Writing straight to outputPath meant a
+        // crash, OOM kill or force-quit mid-download left a truncated file that
+        // Episode.localPath() — which only checks existence — reported as a
+        // complete download, so the episode played a few seconds and stopped with
+        // no way to re-download it.
+        let partPath = outputPath + ".part"
+        try? FileManager.default.removeItem(atPath: partPath)
+        FileManager.default.createFile(atPath: partPath, contents: nil, attributes: nil)
+        guard let fh = FileHandle(forWritingAtPath: partPath) else { return false }
 
         let box = CurlDownloadBox()
         box.fileHandle = fh
@@ -192,15 +200,25 @@ class CurlFetcher {
         let rc = curl_bridge_perform(h)
         fh.closeFile()
 
-        guard rc == 0 else {
-            try? FileManager.default.removeItem(atPath: outputPath)
+        func discardPart() -> Bool {
+            try? FileManager.default.removeItem(atPath: partPath)
             return false
         }
+
+        guard rc == 0 else { return discardPart() }
         let code = curl_bridge_response_code(h)
-        guard code == 200 || code == 206 else {
-            try? FileManager.default.removeItem(atPath: outputPath)
-            return false
+        guard code == 200 || code == 206 else { return discardPart() }
+        // A zero-byte body used to be reported as failure while the empty file was
+        // left behind at the final path — which localPath() then saw as a download.
+        guard box.bytesReceived > 0 else { return discardPart() }
+
+        // Replace any previous copy, then publish atomically under the real name.
+        try? FileManager.default.removeItem(atPath: outputPath)
+        do {
+            try FileManager.default.moveItem(atPath: partPath, toPath: outputPath)
+        } catch {
+            return discardPart()
         }
-        return box.bytesReceived > 0
+        return true
     }
 }

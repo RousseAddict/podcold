@@ -10,6 +10,30 @@ class Episode: NSObject {
     var artworkUrl: String = ""
     var podcastTitle: String = ""
 
+    // MARK: - Identity
+    //
+    // <guid> is optional in RSS 2.0 and a fair number of feeds omit it. An empty
+    // guid is not merely "missing" — it actively collides, because every key in
+    // this class is derived from it: all guid-less episodes would share one
+    // "pos_" key, one "dur_" key, one played-marker, one queue slot, and — worst
+    // — one download path (Documents/.mp3, since the sanitiser maps "" to "").
+    //
+    // title+pubDate is preferred over audioUrl as the substitute: some feeds
+    // append per-request tracking parameters to the enclosure URL, which would
+    // make the identity change on every refresh and silently lose the saved
+    // position each time.
+    //
+    // Episodes that already carry a real <guid> are untouched, so this does not
+    // re-key any existing data.
+    func ensureGuid() {
+        guard guid.isEmpty else { return }
+        if !title.isEmpty || !pubDate.isEmpty {
+            guid = "\(title)|\(pubDate)"
+        } else {
+            guid = audioUrl
+        }
+    }
+
     func savedPosition() -> Double {
         return UserDefaults.standard.double(forKey: "pos_\(guid)")
     }
@@ -53,7 +77,8 @@ class Episode: NSObject {
     // MARK: - Played tracking
     // savedPosition() alone cannot distinguish "never started" from "marked done"
     // (both are 0), so completed episodes are tracked separately by guid.
-    private static let playedGuidsKey = "played_episode_guids"
+    // Internal so BackupManager can export/import it by key.
+    static let playedGuidsKey = "played_episode_guids"
 
     static func isPlayed(guid: String) -> Bool {
         return (UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? []).contains(guid)
@@ -123,6 +148,11 @@ class Episode: NSObject {
         e.summary      = dict["summary"]      as? String ?? ""
         e.artworkUrl   = dict["artworkUrl"]   as? String ?? ""
         e.podcastTitle = dict["podcastTitle"] as? String ?? ""
+        // Records written before guid derivation existed can still carry "".
+        // Deriving here keeps them consistent with what FeedParser now produces,
+        // so a stored recent/download/queue entry matches the same episode when
+        // it comes back from the feed.
+        e.ensureGuid()
         return e
     }
 
@@ -163,7 +193,7 @@ class Episode: NSObject {
 
     // MARK: - Auto-delete finished downloads
 
-    private static let autoDeleteKey = "auto_delete_finished_downloads"
+    static let autoDeleteKey = "auto_delete_finished_downloads"
 
     // Off by default — bool(forKey:) returns false when unset.
     static var autoDeleteFinished: Bool {

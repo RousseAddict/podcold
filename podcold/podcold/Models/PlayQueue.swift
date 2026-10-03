@@ -13,17 +13,22 @@ class PlayQueue {
     static let shared = PlayQueue()
     private init() { episodes = PlayQueue.load() }
 
-    private static let key = "play_queue"
+    // Internal so BackupManager can export/import it by key.
+    static let storageKey = "play_queue"
 
     private(set) var episodes: [Episode]
 
     private static func load() -> [Episode] {
-        guard let arr = UserDefaults.standard.array(forKey: key) as? [[String: Any]] else { return [] }
+        guard let arr = UserDefaults.standard.array(forKey: storageKey) as? [[String: Any]] else { return [] }
         return arr.map { Episode.from(dict: $0) }
     }
 
+    // The singleton caches `episodes` in memory, so anything that writes the
+    // UserDefaults key directly (BackupManager import) must tell it to re-read.
+    func reload() { episodes = PlayQueue.load() }
+
     private func save() {
-        UserDefaults.standard.set(episodes.map { $0.toDict() }, forKey: PlayQueue.key)
+        UserDefaults.standard.set(episodes.map { $0.toDict() }, forKey: PlayQueue.storageKey)
     }
 
     func contains(guid: String) -> Bool {

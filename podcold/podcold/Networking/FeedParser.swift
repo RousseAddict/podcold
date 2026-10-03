@@ -139,6 +139,10 @@ class FeedParser: NSObject, XMLParserDelegate {
         if elementName == "item" || elementName == "entry" {
             if let ep = currentEpisode, !ep.audioUrl.isEmpty {
                 if ep.artworkUrl.isEmpty { ep.artworkUrl = channelArtwork }
+                // <guid> is optional in RSS 2.0 — without a substitute every
+                // guid-less episode in the feed collides on one download path
+                // and one saved position. See Episode.ensureGuid().
+                ep.ensureGuid()
                 episodes.append(ep)
             }
             inItem = false; currentEpisode = nil

@@ -115,7 +115,7 @@ class SettingsVC: UIViewController, UITableViewDelegate, UITableViewDataSource, 
             return
         }
         pendingImport = backup
-        let msg = "\(backup.subscriptionCount) subscription\(backup.subscriptionCount == 1 ? "" : "s") · \(backup.downloadCount) download\(backup.downloadCount == 1 ? "" : "s") · \(backup.positionCount) position\(backup.positionCount == 1 ? "" : "s")"
+        let msg = "\(backup.subscriptionCount) subscription\(backup.subscriptionCount == 1 ? "" : "s") · \(backup.downloadCount) download\(backup.downloadCount == 1 ? "" : "s") · \(backup.positionCount) position\(backup.positionCount == 1 ? "" : "s")\n\(backup.playedCount) played · \(backup.queueCount) queued"
 
         // Safe multi-button UIAlertView: use addButton, NOT the vararg init.
         // The ObjC nil-terminated vararg does not get a nil terminator from Swift — crashes on iOS 6.

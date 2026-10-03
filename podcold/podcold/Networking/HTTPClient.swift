@@ -48,6 +48,7 @@ private class NSURLFetcher: NSObject, NSURLConnectionDataDelegate {
     private let completion: (Data?, Error?) -> Void
     private var conn: NSURLConnection?
     private var timer: Timer?
+    private var finished = false
     private static var active: [NSURLFetcher] = []
 
     static func fetch(_ request: URLRequest, completion: @escaping (Data?, Error?) -> Void) {
@@ -111,8 +112,16 @@ private class NSURLFetcher: NSObject, NSURLConnectionDataDelegate {
         }
     }
 
+    // Single-entry. On timeout the connection was previously only dropped from
+    // our strong reference, not cancelled — NSURLConnection retains its delegate
+    // while scheduled, so it stayed alive and later called
+    // connectionDidFinishLoading, invoking the caller's completion a second time.
+    // All delegate callbacks funnel through here, so one guard covers them all.
     private func finish(_ data: Data?, _ error: Error?) {
-        timer?.invalidate(); timer = nil; conn = nil
+        guard !finished else { return }
+        finished = true
+        timer?.invalidate(); timer = nil
+        conn?.cancel(); conn = nil
         NSURLFetcher.active.removeAll { $0 === self }
         DispatchQueue.main.async { self.completion(data, error) }
     }
