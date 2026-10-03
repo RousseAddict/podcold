@@ -22,6 +22,10 @@ struct BackupManager {
 
     // Payload version 2 adds played/queue/durations/autoDeleteFinished.
     // Version 1 files still import — the new keys simply read as empty.
+    //
+    // Preferences are written as optionals and an absent one leaves the device's
+    // current value alone, so adding another (maxNewEpisodes) needs no bump: a
+    // version-2 file written before it existed imports exactly as it always did.
     static let payloadVersion = 2
 
     static func export() -> ExportResult? {
@@ -59,7 +63,8 @@ struct BackupManager {
             "played":        played,
             "queue":         queue,
             "durations":     durations,
-            "autoDeleteFinished": Episode.autoDeleteFinished
+            "autoDeleteFinished": Episode.autoDeleteFinished,
+            "maxNewEpisodes":     UpNextManager.maxNewEpisodes
         ]
         guard JSONSerialization.isValidJSONObject(payload),
               let data = try? JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted)
@@ -99,9 +104,10 @@ struct BackupManager {
         let played:        [String]
         let queue:         [[String: Any]]
         let durations:     [String: Double]
-        // nil when the file predates version 2 — leave the existing pref alone
-        // rather than silently flipping it off on every old-file import.
+        // nil when the file predates the pref — leave the existing value alone
+        // rather than silently resetting it on every old-file import.
         let autoDeleteFinished: Bool?
+        let maxNewEpisodes:     Int?
         let filePath:      String
 
         var fileName: String { (filePath as NSString).lastPathComponent }
@@ -141,6 +147,10 @@ struct BackupManager {
             queue:         dict["queue"]         as? [[String: Any]] ?? [],
             durations:     doubleMap(dict["durations"]),
             autoDeleteFinished: dict["autoDeleteFinished"] as? Bool,
+            // Range-checked here rather than on apply, so a hand-edited file reads as
+            // "absent" instead of writing an out-of-range value the stepper can't show.
+            maxNewEpisodes: (dict["maxNewEpisodes"] as? Int)
+                .flatMap { UpNextManager.maxNewEpisodesRange.contains($0) ? $0 : nil },
             filePath:      filePath)
     }
 
@@ -212,9 +222,16 @@ struct BackupManager {
             }
         }
 
-        // Applies to both modes; nil means the file predates version 2.
+        // Preferences apply to both modes; nil means the file predates the pref.
         if let autoDelete = backup.autoDeleteFinished {
             Episode.autoDeleteFinished = autoDelete
+        }
+        if let maxNew = backup.maxNewEpisodes, maxNew != UpNextManager.maxNewEpisodes {
+            UpNextManager.maxNewEpisodes = maxNew
+            // Same reason as changing it in Settings: each cache entry is one
+            // already-chosen episode on a 45-minute clock, so the imported window
+            // would not be felt until then.
+            LatestEpisodeCache.clear()
         }
         ud.synchronize()
 
