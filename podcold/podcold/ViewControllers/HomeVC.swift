@@ -6,7 +6,7 @@ class HomeVC: UIViewController {
     private var recentEpisodes: [Episode] = []
     private var upNext:         [(Podcast, Episode)] = []
     private var builtPodcastUrls: [String] = []
-    private var builtRecentGuids: [String] = []
+    private var builtRecentState: [String] = []
     private var builtUpNextGuids: [String] = []
     private var inProgressGuids: Set<String> = []
     private var rebuildScheduled = false
@@ -54,11 +54,11 @@ class HomeVC: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         let newUrls   = podcasts.map { $0.feedUrl }
-        let newGuids  = recentEpisodes.map { $0.guid }
+        let newState  = recentFingerprint()
         let newUpNext = upNext.map { $0.1.guid }
-        if newUrls != builtPodcastUrls || newGuids != builtRecentGuids || newUpNext != builtUpNextGuids {
+        if newUrls != builtPodcastUrls || newState != builtRecentState || newUpNext != builtUpNextGuids {
             builtPodcastUrls  = newUrls
-            builtRecentGuids  = newGuids
+            builtRecentState  = newState
             builtUpNextGuids  = newUpNext
             rebuildLayout()
         } else {
@@ -66,6 +66,15 @@ class HomeVC: UIViewController {
             // user was on another screen.
             updateSyncIndicator()
         }
+    }
+
+    // The guid list alone cannot tell that an episode has *moved*: coming back from
+    // the player with ten more minutes listened produced an identical list, so the
+    // rebuild was skipped and the Continue Listening progress bars stayed frozen at
+    // whatever they showed when the screen was first built. Bucketing the position
+    // at 30 s keeps this a cheap string compare while still catching real listening.
+    private func recentFingerprint() -> [String] {
+        return recentEpisodes.map { "\($0.guid)|\(Int($0.savedPosition() / 30))" }
     }
 
     // MARK: - Layout
@@ -409,10 +418,15 @@ class HomeVC: UIViewController {
 
     @objc private func markPlayedTapped(_ sender: UIButton) {
         guard sender.tag < recentEpisodes.count else { return }
-        recentEpisodes[sender.tag].savePosition(0)
-        recentEpisodes[sender.tag].autoDeleteIfEnabled()
+        let ep = recentEpisodes[sender.tag]
+        ep.savePosition(0)
+        // Without this the episode leaves Continue Listening and immediately
+        // reappears in New Episodes: savedPosition() == 0 cannot distinguish
+        // "never started" from "done with it". upNextDoneTapped already did both.
+        Episode.markPlayed(guid: ep.guid)
+        ep.autoDeleteIfEnabled()
         recentEpisodes.remove(at: sender.tag)
-        builtRecentGuids = recentEpisodes.map { $0.guid }
+        builtRecentState = recentFingerprint()
         rebuildLayout()
     }
 

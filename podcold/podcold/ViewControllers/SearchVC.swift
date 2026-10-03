@@ -68,8 +68,14 @@ class SearchVC: UIViewController, UISearchBarDelegate, UITableViewDataSource, UI
         cell.imageView?.image      = nil
         if !p.artworkUrl.isEmpty {
             let url = p.artworkUrl
-            AsyncImageView.loadCell(url: url) { [weak tableView] img in
-                guard let c = tableView?.cellForRow(at: indexPath) else { return }
+            AsyncImageView.loadCell(url: url) { [weak self, weak tableView] img in
+                guard let self = self,
+                      let c = tableView?.cellForRow(at: indexPath) else { return }
+                // The row may hold a different podcast by now — a new search
+                // replaces `results` while these loads are still in flight, and
+                // applying by indexPath alone put the old artwork on it.
+                guard indexPath.row < self.results.count,
+                      self.results[indexPath.row].artworkUrl == url else { return }
                 c.imageView?.image = img
                 c.setNeedsLayout()
             }

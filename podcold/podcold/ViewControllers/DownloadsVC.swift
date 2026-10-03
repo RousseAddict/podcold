@@ -82,8 +82,13 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
         cell.imageView?.image = nil
         if !ep.artworkUrl.isEmpty {
             let url = ep.artworkUrl
-            AsyncImageView.loadCell(url: url) { [weak tableView] img in
-                guard let c = tableView?.cellForRow(at: indexPath) else { return }
+            AsyncImageView.loadCell(url: url) { [weak self, weak tableView] img in
+                guard let self = self,
+                      let c = tableView?.cellForRow(at: indexPath) else { return }
+                // A delete shifts every row below it up, so by the time this
+                // lands the index may belong to a different episode.
+                guard indexPath.row < self.episodes.count,
+                      self.episodes[indexPath.row].artworkUrl == url else { return }
                 c.imageView?.image = img
                 c.setNeedsLayout()
             }

@@ -28,12 +28,15 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        guard tableView == nil else {
+        if tableView == nil {
+            setupUI()
+            refreshFromCurrentEpisode()
+        } else {
             refreshQueue()
-            return
         }
-        setupUI()
-        refreshFromCurrentEpisode()
+        // The rate outlives this screen, so the button adopts it rather than
+        // assuming 1x on every appearance.
+        syncSpeedFromPlayer()
     }
 
     private func setupUI() {
@@ -85,7 +88,13 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         // Slider
         slider.frame = CGRect(x: 20, y: y, width: w - 40, height: 30)
         slider.minimumTrackTintColor = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
+        // Continuous would fire valueChanged on every pixel of the drag, i.e. an
+        // AVPlayer seek per tick — the thumb stutters and the audio stammers.
+        // One seek on release, with the drag events keeping the labels live.
+        slider.isContinuous = false
         slider.addTarget(self, action: #selector(sliderMoved), for: .valueChanged)
+        slider.addTarget(self, action: #selector(sliderDragging),
+                         for: [.touchDragInside, .touchDragOutside])
         headerView.addSubview(slider)
         y += 28
 
@@ -137,7 +146,6 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
 
         // Speed button — purple when active, gray at 1x
         speedBtn.frame = CGRect(x: (w - 60) / 2, y: y, width: 60, height: 28)
-        speedBtn.setTitle("1x", for: .normal)
         speedBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
         updateSpeedBtn()
         speedBtn.addTarget(self, action: #selector(speedTapped), for: .touchUpInside)
@@ -162,7 +170,9 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
             guard let self = self, self.headerView != nil else { return }
             self.currentTime = cur
             self.duration = dur
-            if !self.slider.isTracking && dur > 0 {
+            // While scrubbing, the drag handler owns both the thumb and the labels.
+            guard !self.slider.isTracking else { return }
+            if dur > 0 {
                 let newVal = Float(cur / dur)
                 if self.slider.value != newVal { self.slider.value = newVal }
             }
@@ -192,10 +202,24 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         playPauseBtn.isSelected = !AudioPlayer.shared.isPlaying
     }
 
+    private func syncSpeedFromPlayer() {
+        guard speedBtn.superview != nil else { return }
+        speedIndex = speeds.firstIndex(of: AudioPlayer.shared.playbackRate) ?? 0
+        updateSpeedBtn()
+    }
+
     private func updateSpeedBtn() {
         let purple = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
-        let isDefault = speeds[speedIndex] == 1.0
-        speedBtn.setTitleColor(isDefault ? UIColor(white: 0.45, alpha: 1) : purple, for: .normal)
+        let s = speeds[speedIndex]
+        let label: String
+        switch s {
+        case 0.5: label = "0.5x"
+        case 1.5: label = "1.5x"
+        case 2.0: label = "2x"
+        default:  label = "1x"
+        }
+        speedBtn.setTitle(label, for: .normal)
+        speedBtn.setTitleColor(s == 1.0 ? UIColor(white: 0.45, alpha: 1) : purple, for: .normal)
     }
 
     // MARK: - Queue
@@ -312,23 +336,24 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         AudioPlayer.shared.seek(to: min(duration - 1, currentTime + 30))
     }
 
+    // Fires on release only (isContinuous = false).
     @objc private func sliderMoved() {
         guard duration > 0 else { return }
+        lastDisplayedSecond = -1   // let the next tick repaint the labels
         AudioPlayer.shared.seek(to: Double(slider.value) * duration)
+    }
+
+    // Live labels during the drag, since no seek happens until the finger lifts.
+    @objc private func sliderDragging() {
+        guard duration > 0 else { return }
+        let t = Double(slider.value) * duration
+        currentTimeLabel.text = fmt(t)
+        remainingLabel.text   = "-\(fmt(max(0, duration - t)))"
     }
 
     @objc private func speedTapped() {
         speedIndex = (speedIndex + 1) % speeds.count
-        let s = speeds[speedIndex]
-        AudioPlayer.shared.setSpeed(s)
-        let label: String
-        switch s {
-        case 0.5: label = "0.5x"
-        case 1.0: label = "1x"
-        case 1.5: label = "1.5x"
-        default:  label = "2x"
-        }
-        speedBtn.setTitle(label, for: .normal)
+        AudioPlayer.shared.setSpeed(speeds[speedIndex])
         updateSpeedBtn()
         if !AudioPlayer.shared.isPlaying { AudioPlayer.shared.resume() }
     }

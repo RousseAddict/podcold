@@ -14,6 +14,10 @@ class AudioPlayer: NSObject {
     // Fired when a different episode becomes current (manual play or queue advance).
     var onEpisodeChange: (() -> Void)?
     private var progressTick = 0  // counts 1-s ticks; used to throttle writes
+    // The chosen playback rate belongs to the player, not to NowPlayingVC: AVPlayer
+    // resets to 1.0 on every play() and a queue advance builds a whole new AVPlayer,
+    // so the rate has to be re-applied rather than set once.
+    private(set) var playbackRate: Float = 1.0
     private static let bgQueue = DispatchQueue(label: "com.podcold.audiobg")
 
     private override init() {
@@ -61,6 +65,13 @@ class AudioPlayer: NSObject {
                 let cur = CMTimeGetSeconds(time)
                 let dur = CMTimeGetSeconds(item.duration)
                 self.progressTick += 1
+                // AVPlayer snaps back to 1.0 whenever it actually starts rolling —
+                // the item becoming ready to play is the common case, and it happens
+                // after startPlayer() has already returned. Re-assert once per tick
+                // while playing; a user pause (rate 0) is left alone.
+                if let p = self.player, p.rate != 0, p.rate != self.playbackRate {
+                    p.rate = self.playbackRate
+                }
                 // Save position every 5s — avoids UserDefaults plist-flush stalls on main thread
                 if self.progressTick % 5 == 0 {
                     self.currentEpisode?.savePosition(cur)
@@ -137,7 +148,9 @@ class AudioPlayer: NSObject {
 
     func resume() {
         player?.play()
-        MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
+        // play() is rate = 1.0, so the chosen speed has to be restored right after.
+        player?.rate = playbackRate
+        MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] = Double(playbackRate)
         onStateChange?()
     }
 
@@ -147,7 +160,10 @@ class AudioPlayer: NSObject {
         player?.seek(to: CMTimeMakeWithSeconds(seconds, preferredTimescale: 1))
     }
 
+    // Remembered even when set while paused — it used to be dropped on the floor,
+    // so picking a speed from a paused player did nothing.
     func setSpeed(_ rate: Float) {
+        playbackRate = rate
         if isPlaying { player?.rate = rate }
     }
 
@@ -182,7 +198,7 @@ class AudioPlayer: NSObject {
             MPMediaItemPropertyTitle: episode.title,
             MPMediaItemPropertyArtist: episode.podcastTitle,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: episode.savedPosition(),
-            MPNowPlayingInfoPropertyPlaybackRate: 1.0
+            MPNowPlayingInfoPropertyPlaybackRate: Double(playbackRate)
         ]
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
 

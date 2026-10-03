@@ -1,38 +1,71 @@
 import Foundation
 
 class iTunesAPI {
+
+    // Static per the queue rule — a queue created inside search() spawned an OS
+    // thread per racing response, i.e. two per search.
+    private static let parseQueue = DispatchQueue(label: "com.podcold.itunesparse")
+
     static func search(term: String, completion: @escaping ([Podcast]) -> Void) {
         let encoded = iTunesAPI.percentEncode(term)
-        // Use HTTP to avoid TLS cipher negotiation issues on iOS 6
-        // Race HTTP and HTTPS so whichever answers first wins
+        // HTTP and HTTPS race, whichever answers first wins. Unlike FeedParser,
+        // these are NSURLConnection requests on the run loop rather than work
+        // items on a serial lane, so this is a real race and not two sequential
+        // downloads — worth the duplicate ~20 KB when HTTP is blocked on a
+        // captive network and HTTPS is not (or vice versa, which is the common
+        // case on iOS 6, where the TLS ciphers often fail instead).
         let httpUrl  = "http://itunes.apple.com/search?term=\(encoded)&media=podcast&entity=podcast&limit=25"
         let httpsUrl = "https://itunes.apple.com/search?term=\(encoded)&media=podcast&entity=podcast&limit=25"
 
+        // All three of these are read and written on the main thread only: both
+        // HTTPClient completions and the watchdog land there, and the parse hop
+        // comes back through main before touching them. Previously `done` was
+        // also read from the parse queue, unsynchronised.
         var done = false
+        var pendingLegs = 2
+
+        func finish(_ podcasts: [Podcast]) {
+            guard !done else { return }
+            done = true
+            completion(podcasts)
+        }
+
+        // nil means "this leg produced nothing usable" — no response, or a body
+        // that did not parse. An *empty but valid* result is [] and finishes
+        // immediately: the old code returned early on `podcasts.isEmpty`, so a
+        // search with no matches sat on the 22 s watchdog before showing the
+        // empty table.
+        func legFinished(_ podcasts: [Podcast]?) {
+            guard !done else { return }
+            if let podcasts = podcasts { finish(podcasts); return }
+            pendingLegs -= 1
+            if pendingLegs == 0 { finish([]) }
+        }
+
         func handle(_ data: Data?) {
-            guard !done, let data = data else { return }
-            DispatchQueue(label: "com.podcold.misc").async {
-                guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let results = root["results"] as? [[String: Any]] else { return }
-                let podcasts = results.compactMap { iTunesAPI.podcastFrom(dict: $0) }
-                guard !podcasts.isEmpty else { return }
-                DispatchQueue.main.async {
-                    guard !done else { return }
-                    done = true
-                    completion(podcasts)
-                }
+            guard !done else { return }
+            guard let data = data else { legFinished(nil); return }
+            iTunesAPI.parseQueue.async {
+                let podcasts = iTunesAPI.parse(data)
+                DispatchQueue.main.async { legFinished(podcasts) }
             }
         }
 
         HTTPClient.get(url: httpUrl)  { data, _ in handle(data) }
         HTTPClient.get(url: httpsUrl) { data, _ in handle(data) }
 
-        // Fallback: if neither responded after 22s, return empty
+        // Backstop only. HTTPClient always calls back (its own 30 s timer), so
+        // both legs now report and this should no longer be reachable.
         DispatchQueue.main.asyncAfter(deadline: .now() + 22) {
-            guard !done else { return }
-            done = true
-            completion([])
+            finish([])
         }
+    }
+
+    // nil = unusable response; [] = valid response with no matches.
+    private static func parse(_ data: Data) -> [Podcast]? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let results = root["results"] as? [[String: Any]] else { return nil }
+        return results.compactMap { iTunesAPI.podcastFrom(dict: $0) }
     }
 
     // Percent-encode a URL query value — iOS 2+ safe.
