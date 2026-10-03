@@ -167,7 +167,19 @@ class AudioPlayer: NSObject {
         if isPlaying { player?.rate = rate }
     }
 
+    // Positions are only written on every 5th tick, so tearing the player down
+    // without a final write throws away up to 5 s — on closing the mini player,
+    // on switching episodes, and on being killed in the background.
+    func flushPosition() {
+        guard let ep = currentEpisode, let p = player else { return }
+        let cur = CMTimeGetSeconds(p.currentTime())
+        guard !cur.isNaN, cur > 0 else { return }
+        ep.savePosition(cur)
+        UserDefaults.standard.synchronize()
+    }
+
     func stop() {
+        flushPosition()
         removeItemObserver()
         if let obs = timeObserver { player?.removeTimeObserver(obs); timeObserver = nil }
         player?.pause()
@@ -184,6 +196,10 @@ class AudioPlayer: NSObject {
         // Queued episodes take over instead of tearing the player down. onFinish is
         // what makes NowPlayingVC pop itself, so it only fires when nothing is left.
         if let next = PlayQueue.shared.next() {
+            // The position was just reset to 0 — drop the reference so the stop()
+            // inside play() doesn't flush the near-end time straight back over it
+            // and resurrect the episode in Continue Listening.
+            currentEpisode = nil
             play(episode: next)
             return
         }

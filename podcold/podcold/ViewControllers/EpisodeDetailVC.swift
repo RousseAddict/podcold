@@ -180,6 +180,15 @@ class EpisodeDetailVC: UIViewController {
     // Same button in all three states — the title says which one is live
     @objc private func downloadTapped() {
         if let path = episode.localPath() {
+            // AVPlayer is reading this exact file — see DownloadsVC's swipe-delete.
+            guard AudioPlayer.shared.currentEpisode?.guid != episode.guid else {
+                let a = UIAlertView()
+                a.title   = "Still Playing"
+                a.message = "Close the player before deleting this download."
+                a.addButton(withTitle: "OK")
+                a.show()
+                return
+            }
             try? FileManager.default.removeItem(atPath: path)
             Episode.removeFromDownloads(guid: episode.guid)
             updateDownloadButton(progress: nil)

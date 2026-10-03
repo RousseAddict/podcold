@@ -101,6 +101,18 @@ class DownloadsVC: UIViewController, UITableViewDataSource, UITableViewDelegate 
                    forRowAt indexPath: IndexPath) {
         guard editingStyle == .delete else { return }
         let ep = episodes[indexPath.row]
+        // AVPlayer is reading this exact file. Pulling it out from under the player
+        // leaves it on a deleted inode and playback dies a few seconds later with no
+        // explanation. Refusing is recoverable; killing playback on a swipe is not.
+        guard AudioPlayer.shared.currentEpisode?.guid != ep.guid else {
+            tableView.setEditing(false, animated: true)
+            let a = UIAlertView()
+            a.title   = "Still Playing"
+            a.message = "Close the player before deleting this download."
+            a.addButton(withTitle: "OK")
+            a.show()
+            return
+        }
         if let path = ep.localPath() {
             try? FileManager.default.removeItem(atPath: path)
         }
