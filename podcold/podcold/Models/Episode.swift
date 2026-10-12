@@ -41,6 +41,46 @@ class Episode: NSObject {
         UserDefaults.standard.set(seconds, forKey: "pos_\(guid)")
     }
 
+    // MARK: - Progress
+    //
+    // A position inside the last few seconds of the file is a finished episode,
+    // not a resume point. Storing it verbatim is what made an abandoned-at-99%
+    // episode unplayable: the next play seeked to the end, the item reported
+    // "played to end" immediately, and the player closed itself on open.
+    //
+    // The window scales with length — 15 s is most of a two-minute trailer — and
+    // is capped so a three-hour show does not forfeit its last four minutes.
+    static func finishWindow(for duration: Double) -> Double {
+        guard duration > 0 else { return 0 }
+        return min(15, duration * 0.02)
+    }
+
+    static func isFinished(position: Double, duration: Double) -> Bool {
+        guard duration > 0 else { return false }
+        return position >= duration - finishWindow(for: duration)
+    }
+
+    // Single funnel for every progress write — the periodic tick and the final
+    // flush both go through here, so neither can store an end position.
+    func recordProgress(_ seconds: Double, duration: Double) {
+        saveDuration(duration)
+        if Episode.isFinished(position: seconds, duration: duration) {
+            savePosition(0)
+            Episode.markPlayed(guid: guid)
+        } else {
+            savePosition(seconds)
+        }
+    }
+
+    // Where playback should actually start: 0 when nothing worth resuming is
+    // stored, or when the stored point is effectively the end of the file.
+    func resumePosition() -> Double {
+        let pos = savedPosition()
+        guard pos > 5 else { return 0 }
+        let total = totalDuration()
+        return Episode.isFinished(position: pos, duration: total) ? 0 : pos
+    }
+
     // MARK: - Duration
     // Feeds are inconsistent: itunes:duration may be plain seconds ("3600"),
     // "MM:SS" or "HH:MM:SS", and plenty of feeds omit it entirely. The real
@@ -87,6 +127,14 @@ class Episode: NSObject {
     static func markPlayed(guid: String) {
         var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
         set.insert(guid)
+        UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
+    }
+
+    // Deliberately replaying a finished episode has to undo the marker, or it
+    // stays filtered out of the New Episodes lane while it is playing.
+    static func unmarkPlayed(guid: String) {
+        var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
+        guard set.remove(guid) != nil else { return }
         UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
     }
 

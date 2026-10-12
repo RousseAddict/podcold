@@ -1,9 +1,14 @@
 import UIKit
 
 class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate {
+    // The mini bar hides behind this screen. It used to discover that by polling
+    // the navigation stack twice a second; now the screen simply says so.
+    private(set) static var isOnScreen = false
+
     private let artworkView      = AsyncImageView()
     private let titleLabel       = UILabel()
     private let podcastLabel     = UILabel()
+    private let statusLabel      = UILabel()
     private let playPauseBtn     = UIButton(type: .custom)
     private let skipBackBtn      = UIButton(type: .custom)
     private let skipFwdBtn       = UIButton(type: .custom)
@@ -11,19 +16,36 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
     private let currentTimeLabel = UILabel()
     private let remainingLabel   = UILabel()
     private let speedBtn         = UIButton(type: .custom)
-    private var duration: Double = 0
-    private var currentTime: Double = 0
+    private let spinner          = UIActivityIndicatorView(style: .white)
     private let speeds: [Float]  = [1.0, 1.5, 2.0, 0.5]
     private var speedIndex       = 0
     private var tableView: UITableView!
     private var headerView: UIView!
     private var lastDisplayedSecond = -1
+    private var lastDisplayedDuration: Double = -1
+
+    // The player owns these now. The screen used to keep its own copies, which
+    // only existed after the first periodic tick — so the skip buttons and the
+    // slider were inert for as long as the episode took to open.
+    private var currentTime: Double { return AudioPlayer.shared.currentTime }
+    private var duration: Double    { return AudioPlayer.shared.duration }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Now Playing"
         view.backgroundColor = UIColor(red: 0.08, green: 0.08, blue: 0.12, alpha: 1)
-        bindPlayer()
+        observePlayer()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Before the push animation, so the bar does not ride over the incoming screen
+        NowPlayingVC.isOnScreen = true
+        NotificationCenter.default.post(name: .nowPlayingVisibilityChanged, object: nil)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -83,7 +105,18 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         podcastLabel.font = UIFont.systemFont(ofSize: 13)
         podcastLabel.textAlignment = .center
         headerView.addSubview(podcastLabel)
-        y += 26
+        y += 22
+
+        // Why the player is not making any sound right now: loading, buffering,
+        // downloading a stream AVPlayer refused, failed, or finished. Empty while
+        // playing or paused, which are self-evident from the button.
+        statusLabel.frame = CGRect(x: 20, y: y, width: w - 40, height: 14)
+        statusLabel.backgroundColor = .clear
+        statusLabel.textColor = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
+        statusLabel.font = UIFont.systemFont(ofSize: 12)
+        statusLabel.textAlignment = .center
+        headerView.addSubview(statusLabel)
+        y += 22
 
         // Slider
         slider.frame = CGRect(x: 20, y: y, width: w - 40, height: 30)
@@ -135,6 +168,12 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         playPauseBtn.addTarget(self, action: #selector(playPauseTapped), for: .touchUpInside)
         headerView.addSubview(playPauseBtn)
 
+        // Takes the button's place while the asset opens or the buffer runs dry,
+        // instead of showing a pause glyph over silence.
+        spinner.frame = playPauseBtn.frame
+        spinner.hidesWhenStopped = true
+        headerView.addSubview(spinner)
+
         skipFwdBtn.frame = CGRect(x: w - 80, y: ctrlY, width: 60, height: ctrlH)
         skipFwdBtn.setTitle("+30s", for: .normal)
         skipFwdBtn.setTitleColor(UIColor(white: 0.65, alpha: 1), for: .normal)
@@ -162,44 +201,83 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         titleLabel.text   = ep.title
         podcastLabel.text = ep.podcastTitle
         if !ep.artworkUrl.isEmpty { artworkView.load(url: ep.artworkUrl) }
-        updatePlayPauseBtn()
+        renderTime()
+        renderState()
     }
 
-    private func bindPlayer() {
-        AudioPlayer.shared.onProgress = { [weak self] cur, dur in
-            guard let self = self, self.headerView != nil else { return }
-            self.currentTime = cur
-            self.duration = dur
-            // While scrubbing, the drag handler owns both the thumb and the labels.
-            guard !self.slider.isTracking else { return }
-            if dur > 0 {
-                let newVal = Float(cur / dur)
-                if self.slider.value != newVal { self.slider.value = newVal }
-            }
-            let s = Int(cur)
-            if s != self.lastDisplayedSecond {
-                self.lastDisplayedSecond = s
-                self.currentTimeLabel.text = self.fmt(cur)
-                self.remainingLabel.text   = "-\(self.fmt(max(0, dur - cur)))"
-            }
-        }
-        AudioPlayer.shared.onStateChange = { [weak self] in self?.updatePlayPauseBtn() }
-        // Queue advance: stay on screen, swap the header contents and drop the row
-        AudioPlayer.shared.onEpisodeChange = { [weak self] in
-            guard let self = self, self.headerView != nil else { return }
-            self.lastDisplayedSecond = -1
-            self.slider.value = 0
-            self.refreshFromCurrentEpisode()
-            self.refreshQueue()
-        }
-        // Only fires when the queue is empty — otherwise the next episode takes over
-        AudioPlayer.shared.onFinish      = { [weak self] in
-            self?.navigationController?.popViewController(animated: true)
-        }
+    // Registered for the whole lifetime of the screen. The four closures this
+    // replaced were cleared on every disappear and only ever bound in
+    // viewDidLoad, so pushing anything on top and coming back left a dead slider.
+    private func observePlayer() {
+        let nc = NotificationCenter.default
+        nc.addObserver(self, selector: #selector(playerTimeChanged),
+                       name: .playerTimeChanged, object: nil)
+        nc.addObserver(self, selector: #selector(playerStateChanged),
+                       name: .playerStateChanged, object: nil)
+        nc.addObserver(self, selector: #selector(playerEpisodeChanged),
+                       name: .playerEpisodeChanged, object: nil)
     }
 
-    private func updatePlayPauseBtn() {
-        playPauseBtn.isSelected = !AudioPlayer.shared.isPlaying
+    @objc private func playerTimeChanged()  { renderTime() }
+    @objc private func playerStateChanged() { renderState() }
+
+    // Queue advance: stay on screen, swap the header contents and drop the row.
+    @objc private func playerEpisodeChanged() {
+        guard headerView != nil else { return }
+        // Only the mini bar's close button can empty the player from under us
+        guard AudioPlayer.shared.currentEpisode != nil else {
+            navigationController?.popViewController(animated: true)
+            return
+        }
+        lastDisplayedSecond   = -1
+        lastDisplayedDuration = -1
+        refreshFromCurrentEpisode()
+        refreshQueue()
+    }
+
+    private func renderTime() {
+        guard headerView != nil else { return }
+        // While scrubbing, the drag handler owns both the thumb and the labels.
+        guard !slider.isTracking else { return }
+        let cur = currentTime, dur = duration
+        let newVal = dur > 0 ? Float(min(1, max(0, cur / dur))) : 0
+        if slider.value != newVal { slider.value = newVal }
+        let s = Int(cur)
+        guard s != lastDisplayedSecond || dur != lastDisplayedDuration else { return }
+        lastDisplayedSecond   = s
+        lastDisplayedDuration = dur
+        currentTimeLabel.text = fmt(cur)
+        // "--:--" rather than "-0:00" when the length is genuinely not known yet
+        remainingLabel.text   = dur > 0 ? "-\(fmt(max(0, dur - cur)))" : "--:--"
+    }
+
+    private func renderState() {
+        guard headerView != nil else { return }
+        let p = AudioPlayer.shared
+        let busy = p.isBusy
+        if busy { spinner.startAnimating() } else { spinner.stopAnimating() }
+        if playPauseBtn.isHidden != busy { playPauseBtn.isHidden = busy }
+        playPauseBtn.isSelected = !p.isPlaying   // selected == the play glyph
+        let canScrub = (p.duration > 0 && !busy)
+        slider.isEnabled      = canScrub
+        skipBackBtn.isEnabled = canScrub
+        skipFwdBtn.isEnabled  = canScrub
+        statusLabel.text = statusText()
+    }
+
+    private func statusText() -> String {
+        let p = AudioPlayer.shared
+        switch p.state {
+        case .loading:
+            if p.downloadProgress >= 0 {
+                return "Downloading \(Int(p.downloadProgress * 100))%"
+            }
+            return "Loading…"
+        case .stalled: return "Buffering…"
+        case .failed:  return "Couldn't play this episode"
+        case .ended:   return "Finished — play to listen again"
+        default:       return ""
+        }
     }
 
     private func syncSpeedFromPlayer() {
@@ -355,7 +433,9 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         speedIndex = (speedIndex + 1) % speeds.count
         AudioPlayer.shared.setSpeed(speeds[speedIndex])
         updateSpeedBtn()
-        if !AudioPlayer.shared.isPlaying { AudioPlayer.shared.resume() }
+        // Only wake a deliberately paused player — resume() on a finished one
+        // restarts the episode, which is not what picking a speed asked for.
+        if AudioPlayer.shared.state == .paused { AudioPlayer.shared.resume() }
     }
 
     private func fmt(_ s: Double) -> String {
@@ -364,9 +444,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        AudioPlayer.shared.onProgress      = nil
-        AudioPlayer.shared.onStateChange   = nil
-        AudioPlayer.shared.onFinish        = nil
-        AudioPlayer.shared.onEpisodeChange = nil
+        NowPlayingVC.isOnScreen = false
+        NotificationCenter.default.post(name: .nowPlayingVisibilityChanged, object: nil)
     }
 }
