@@ -438,8 +438,11 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         if AudioPlayer.shared.state == .paused { AudioPlayer.shared.resume() }
     }
 
+    // Past the hour, "84:12" makes you do the arithmetic — long episodes get an hours field.
     private func fmt(_ s: Double) -> String {
-        let t = Int(s); return String(format: "%d:%02d", t / 60, t % 60)
+        let t = Int(s)
+        if t >= 3600 { return String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60) }
+        return String(format: "%d:%02d", t / 60, t % 60)
     }
 
     override func viewWillDisappear(_ animated: Bool) {

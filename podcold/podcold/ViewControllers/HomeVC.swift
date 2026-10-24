@@ -12,7 +12,8 @@ class HomeVC: UIViewController {
     private var rebuildScheduled = false
     private var builtSyncing = false
     private weak var newEpisodesHeader: UILabel?
-    private weak var syncSpinner: UIActivityIndicatorView?
+    private weak var syncTag: UIView?
+    private weak var syncCountLabel: UILabel?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -37,7 +38,7 @@ class HomeVC: UIViewController {
         upNext = UpNextManager.shared.cachedUpNext(podcasts: podcasts, inProgressGuids: inProgressGuids)
         UpNextManager.shared.onUpdate = { [weak self] in self?.scheduleUpNextRebuild() }
         // Bound after refreshStale: that call flips the state synchronously, and the
-        // spinner is already accounted for by viewDidAppear's build below.
+        // sync tag is already accounted for by viewDidAppear's build below.
         UpNextManager.shared.refreshStale(podcasts: podcasts, inProgressGuids: inProgressGuids)
         UpNextManager.shared.onSyncStateChange = { [weak self] in self?.updateSyncIndicator() }
     }
@@ -103,7 +104,8 @@ class HomeVC: UIViewController {
     private func rebuildLayout() {
         scrollView.subviews.forEach { $0.removeFromSuperview() }
         newEpisodesHeader = nil
-        syncSpinner       = nil
+        syncTag           = nil
+        syncCountLabel    = nil
         let w = UIScreen.main.bounds.width
         var y: CGFloat = 12
 
@@ -127,7 +129,7 @@ class HomeVC: UIViewController {
             y += stripH + 16
         }
 
-        // Keep the header (and its spinner) up while a batch is running even with no
+        // Keep the header (and its sync tag) up while a batch is running even with no
         // cards yet — that first stretch, when the lane is still empty, is exactly
         // when the user has no other sign that anything is happening.
         builtSyncing = UpNextManager.shared.isSyncing
@@ -135,7 +137,7 @@ class HomeVC: UIViewController {
             let header = sectionHeader("New Episodes", y: y, w: w)
             scrollView.addSubview(header)
             newEpisodesHeader = header
-            if builtSyncing { showSyncSpinner() }
+            if builtSyncing { showSyncTag() }
             y += 34
 
             if !upNext.isEmpty {
@@ -189,16 +191,19 @@ class HomeVC: UIViewController {
 
     private func updateSyncIndicator() {
         let syncing = UpNextManager.shared.isSyncing
-        guard syncing != builtSyncing else { return }
+        // Same state, but the batch may have moved on to its next feed.
+        guard syncing != builtSyncing else { updateSyncCount(); return }
         builtSyncing = syncing
         // With no cards yet the header only exists while syncing, so its appearing
         // or disappearing shifts everything below it — that needs a full pass.
         guard !upNext.isEmpty else { rebuildLayout(); return }
-        if syncing { showSyncSpinner() } else { hideSyncSpinner() }
+        if syncing { showSyncTag() } else { hideSyncTag() }
     }
 
-    private func showSyncSpinner() {
-        guard let header = newEpisodesHeader, syncSpinner == nil else { return }
+    // A pill right after the header text: spinner + "3/12", so a long batch reads as
+    // progress instead of an open-ended spin.
+    private func showSyncTag() {
+        guard let header = newEpisodesHeader, syncTag == nil else { return }
 
         // The header label is full-width, so measure the text to find where it ends.
         let sizing = UILabel()
@@ -206,22 +211,53 @@ class HomeVC: UIViewController {
         sizing.text = header.text
         sizing.sizeToFit()
 
+        let tagH: CGFloat = 18
+        let tint = UIColor(red: 0.78, green: 0.64, blue: 0.92, alpha: 1)
+        let tag = UIView(frame: CGRect(x: sizing.frame.width + 8, y: (header.bounds.height - tagH) / 2,
+                                       width: tagH, height: tagH))
+        tag.backgroundColor = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 0.25)
+        // No clipsToBounds — nothing overflows, so the corner radius alone is enough
+        // and the pill stays off the off-screen render path.
+        tag.layer.cornerRadius = tagH / 2
+
         // .white (raw value 0) rather than the modern .medium — the iOS 6 runtime
         // doesn't know the newer style constants. Scaled down so the 20pt indicator
-        // sits inside an 11pt header line without dwarfing it.
+        // fits inside the pill.
         let spinner = UIActivityIndicatorView(style: .white)
-        spinner.color = header.textColor
-        spinner.transform = CGAffineTransform(scaleX: 0.7, y: 0.7)
-        spinner.center = CGPoint(x: sizing.frame.width + 11, y: header.bounds.midY)
+        spinner.color = tint
+        spinner.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
+        spinner.center = CGPoint(x: 13, y: tagH / 2)
         spinner.startAnimating()
-        header.addSubview(spinner)
-        syncSpinner = spinner
+        tag.addSubview(spinner)
+
+        let count = UILabel(frame: CGRect(x: 23, y: 0, width: 0, height: tagH))
+        count.backgroundColor = .clear
+        count.textColor = tint
+        count.font = UIFont.boldSystemFont(ofSize: 10)
+        tag.addSubview(count)
+
+        header.addSubview(tag)
+        syncTag = tag
+        syncCountLabel = count
+        updateSyncCount()
     }
 
-    private func hideSyncSpinner() {
-        syncSpinner?.stopAnimating()
-        syncSpinner?.removeFromSuperview()
-        syncSpinner = nil
+    // Fires once per feed, so it only touches frames when the text actually changed.
+    private func updateSyncCount() {
+        guard let tag = syncTag, let count = syncCountLabel else { return }
+        let p = UpNextManager.shared.syncProgress
+        let text = "\(p.current)/\(p.total)"
+        guard count.text != text else { return }
+        count.text = text
+        count.sizeToFit()
+        count.frame = CGRect(x: 23, y: 0, width: count.frame.width, height: tag.bounds.height)
+        tag.frame.size.width = count.frame.maxX + 8
+    }
+
+    private func hideSyncTag() {
+        syncTag?.removeFromSuperview()
+        syncTag = nil
+        syncCountLabel = nil
     }
 
     // MARK: - Subview factories

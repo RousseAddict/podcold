@@ -56,11 +56,16 @@ class UpNextManager {
     // Called after each feed in the batch resolves, so HomeVC can incrementally re-render.
     var onUpdate: (() -> Void)?
 
-    // Drives HomeVC's "New Episodes" sync spinner. True from the moment a batch is
+    // Drives HomeVC's "New Episodes" sync tag. True from the moment a batch is
     // queued until its last feed resolves — including while suspend() has the batch
     // parked, since the remaining feeds are still coming.
     var isSyncing: Bool { return refreshing || !pending.isEmpty }
+    // Fires when a batch starts, moves on to its next feed, and finishes.
     var onSyncStateChange: (() -> Void)?
+
+    // The "3/12" in the sync tag: the feed currently in flight, out of the whole batch.
+    private var syncTotal = 0
+    var syncProgress: (current: Int, total: Int) { return (syncTotal - pending.count, syncTotal) }
 
     func cachedUpNext(podcasts: [Podcast], inProgressGuids: Set<String>) -> [(Podcast, Episode)] {
         var results: [(Podcast, Episode)] = []
@@ -76,8 +81,13 @@ class UpNextManager {
 
     func refreshStale(podcasts: [Podcast], inProgressGuids: Set<String>) {
         guard !refreshing else { return }
+        // A batch parked by suspend() is the same batch picking back up: the feeds it
+        // already checked are fresh now and drop out of the stale list, so carry them
+        // in the count rather than restarting the tag at 1.
+        let done = pending.isEmpty ? 0 : syncTotal - pending.count
         self.inProgressGuids = inProgressGuids
         pending = podcasts.filter { LatestEpisodeCache.isStale(feedUrl: $0.feedUrl) }
+        syncTotal = done + pending.count
         onSyncStateChange?()
         processNext()
     }
@@ -88,6 +98,7 @@ class UpNextManager {
         guard !paused else { refreshing = false; return }
         refreshing = true
         let podcast = pending.removeFirst()
+        onSyncStateChange?()
         FeedParser.parse(feedUrl: podcast.feedUrl, podcastTitle: podcast.title) { [weak self] episodes in
             guard let self = self else { return }
             // Feed order is newest-first, so the window is simply the head of the list.
