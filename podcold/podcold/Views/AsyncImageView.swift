@@ -78,6 +78,9 @@ class AsyncImageView: UIImageView {
 
         // Memory cache hit — instant, no queue needed
         if let cached = AsyncImageView.cache.object(forKey: AsyncImageView.cacheKey(url: url, targetPx: targetPx)) {
+            // Settles the view: a fetch still in flight for what it showed before
+            // (a reused cell) must not land on top of this one.
+            loadingURL = nil
             image = cached; return
         }
         loadingURL = url
