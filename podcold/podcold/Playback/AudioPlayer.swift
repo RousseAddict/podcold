@@ -324,9 +324,13 @@ class AudioPlayer: NSObject {
     }
 
     func resume() {
-        // An AVPlayer parked at the end of its item ignores play(), so the only
-        // meaningful "play" there is to start over.
-        if state == .ended { replay(); return }
+        // An AVPlayer parked at the end of its item ignores play(). If something is
+        // still queued — an end-of-episode sleep timer stops short of advancing —
+        // carry on with that; otherwise the only meaningful "play" is to start over.
+        if state == .ended {
+            if !playNextInQueue() { replay() }
+            return
+        }
         guard let p = player else {
             // Torn down while the episode stayed current (e.g. a failed load)
             if let ep = currentEpisode { play(episode: ep) }
@@ -424,19 +428,25 @@ class AudioPlayer: NSObject {
             Episode.markPlayed(guid: ep.guid)
             ep.autoDeleteIfEnabled()
         }
-        // Queued episodes take over instead of tearing the player down.
-        if let next = PlayQueue.shared.next() {
-            // The position was just reset to 0 — drop the reference so the stop()
-            // inside play() doesn't flush the near-end time straight back over it
-            // and resurrect the episode in Continue Listening.
-            currentEpisode = nil
-            play(episode: next)
-            return
-        }
+        // An end-of-episode sleep timer stops here and leaves the queue alone, so
+        // pressing play afterwards picks up with what was next (see resume()).
+        let sleeping = SleepTimer.shared.claimEndOfEpisode()
+        if !sleeping, playNextInQueue() { return }
         // Park at the end rather than popping the screen out from under the user.
         currentTime = duration
         state = .ended
         post(.playerTimeChanged)
+    }
+
+    // Queued episodes take over instead of tearing the player down.
+    private func playNextInQueue() -> Bool {
+        guard let next = PlayQueue.shared.next() else { return false }
+        // The position was already reset to 0 — drop the reference so the flush
+        // inside play() doesn't write the near-end time straight back over it and
+        // resurrect the episode in Continue Listening.
+        currentEpisode = nil
+        play(episode: next)
+        return true
     }
 
     // MARK: - Now Playing Info (lock screen + control centre)

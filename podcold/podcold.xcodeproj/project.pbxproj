@@ -29,6 +29,7 @@
 		BB000001000000000000BC05 /* Podcast.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB05 /* Podcast.swift */; };
 		BB000001000000000000BC06 /* Episode.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB06 /* Episode.swift */; };
 		BB000001000000000000BC07 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB07 /* AudioPlayer.swift */; };
+		BB000001000000000000BC24 /* SleepTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB24 /* SleepTimer.swift */; };
 		BB000001000000000000BC08 /* AsyncImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB08 /* AsyncImageView.swift */; };
 		BB000001000000000000BC09 /* PodcastCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB09 /* PodcastCell.swift */; };
 		BB000001000000000000BC0F /* MiniPlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB0F /* MiniPlayerBar.swift */; };
@@ -101,6 +102,7 @@
 		BB000001000000000000BB05 /* Podcast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Podcast.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB06 /* Episode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Episode.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB07 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB24 /* SleepTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimer.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB08 /* AsyncImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncImageView.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB09 /* PodcastCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastCell.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB0F /* MiniPlayerBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerBar.swift; sourceTree = "<group>"; };
@@ -238,6 +240,7 @@
 			isa = PBXGroup;
 			children = (
 				BB000001000000000000BB07 /* AudioPlayer.swift */,
+				BB000001000000000000BB24 /* SleepTimer.swift */,
 			);
 			name = Playback;
 			path = Playback;
@@ -415,6 +418,7 @@
 				BB000001000000000000BC05 /* Podcast.swift in Sources */,
 				BB000001000000000000BC06 /* Episode.swift in Sources */,
 				BB000001000000000000BC07 /* AudioPlayer.swift in Sources */,
+				BB000001000000000000BC24 /* SleepTimer.swift in Sources */,
 				BB000001000000000000BC08 /* AsyncImageView.swift in Sources */,
 				BB000001000000000000BC09 /* PodcastCell.swift in Sources */,
 					BB000001000000000000BC0F /* MiniPlayerBar.swift in Sources */,

@@ -1,6 +1,6 @@
 import UIKit
 
-class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate {
+class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate, UIActionSheetDelegate {
     // The mini bar hides behind this screen. It used to discover that by polling
     // the navigation stack twice a second; now the screen simply says so.
     private(set) static var isOnScreen = false
@@ -19,6 +19,10 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
     private let spinner          = UIActivityIndicatorView(style: .white)
     private let speeds: [Float]  = [1.0, 1.5, 2.0, 0.5]
     private var speedIndex       = 0
+    private let sleepBtn         = UIButton(type: .custom)
+    private let sleepMinutes     = [15, 30, 45, 60]
+    // One entry per non-cancel button of the sheet on screen, in button-index order
+    private var sleepActions: [() -> Void] = []
     private var tableView: UITableView!
     private var headerView: UIView!
     private var lastDisplayedSecond = -1
@@ -59,6 +63,7 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         // The rate outlives this screen, so the button adopts it rather than
         // assuming 1x on every appearance.
         syncSpeedFromPlayer()
+        renderSleep()
     }
 
     private func setupUI() {
@@ -183,12 +188,18 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
 
         y = ctrlY + ctrlH + 14
 
-        // Speed button — purple when active, gray at 1x
-        speedBtn.frame = CGRect(x: (w - 60) / 2, y: y, width: 60, height: 28)
+        // Speed and sleep share a row either side of centre — purple when active, gray when not
+        speedBtn.frame = CGRect(x: w / 2 - 72, y: y, width: 64, height: 28)
         speedBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
         updateSpeedBtn()
         speedBtn.addTarget(self, action: #selector(speedTapped), for: .touchUpInside)
         headerView.addSubview(speedBtn)
+
+        sleepBtn.frame = CGRect(x: w / 2 + 8, y: y, width: 64, height: 28)
+        sleepBtn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14)
+        sleepBtn.addTarget(self, action: #selector(sleepTapped), for: .touchUpInside)
+        headerView.addSubview(sleepBtn)
+        renderSleep()
         y += 42
 
         headerView.frame = CGRect(x: 0, y: 0, width: w, height: y)
@@ -216,10 +227,14 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
                        name: .playerStateChanged, object: nil)
         nc.addObserver(self, selector: #selector(playerEpisodeChanged),
                        name: .playerEpisodeChanged, object: nil)
+        nc.addObserver(self, selector: #selector(sleepTimerChanged),
+                       name: .sleepTimerChanged, object: nil)
     }
 
-    @objc private func playerTimeChanged()  { renderTime() }
+    // The sleep countdown only moves while playing, which is when time ticks arrive.
+    @objc private func playerTimeChanged()  { renderTime(); renderSleep() }
     @objc private func playerStateChanged() { renderState() }
+    @objc private func sleepTimerChanged()  { renderSleep() }
 
     // Queue advance: stay on screen, swap the header contents and drop the row.
     @objc private func playerEpisodeChanged() {
@@ -275,7 +290,10 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
             return "Loading…"
         case .stalled: return "Buffering…"
         case .failed:  return "Couldn't play this episode"
-        case .ended:   return "Finished — play to listen again"
+        case .ended:
+            // Only an end-of-episode sleep timer parks here with something still queued
+            return PlayQueue.shared.episodes.isEmpty ? "Finished — play to listen again"
+                                                     : "Finished — play for up next"
         default:       return ""
         }
     }
@@ -300,12 +318,66 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         speedBtn.setTitleColor(s == 1.0 ? UIColor(white: 0.45, alpha: 1) : purple, for: .normal)
     }
 
+    // MARK: - Sleep timer
+
+    private func renderSleep() {
+        guard sleepBtn.superview != nil else { return }
+        let timer = SleepTimer.shared
+        let label: String
+        switch timer.mode {
+        case .off:          label = "Sleep"
+        case .endOfEpisode: label = "End"
+        // Rounded up, so the last minute reads "1m" until it fires rather than "0m"
+        case .countdown:    label = "\(max(1, Int(ceil(timer.remaining / 60))))m"
+        }
+        // Called on every time tick — only touch the button when the text moves
+        guard sleepBtn.title(for: .normal) != label else { return }
+        let purple = UIColor(red: 0.53, green: 0.26, blue: 0.73, alpha: 1)
+        sleepBtn.setTitle(label, for: .normal)
+        sleepBtn.setTitleColor(timer.isActive ? purple : UIColor(white: 0.45, alpha: 1), for: .normal)
+    }
+
+    @objc private func sleepTapped() {
+        let timer = SleepTimer.shared
+        // addButton, NOT the vararg init: the ObjC nil-terminated list gets no
+        // terminator from Swift — the same crash as UIAlertView on iOS 6.
+        let sheet = UIActionSheet()
+        sheet.title = "Sleep Timer"
+        sheet.delegate = self
+        var actions: [() -> Void] = []
+        for m in sleepMinutes {
+            sheet.addButton(withTitle: m == 60 ? "1 hour" : "\(m) minutes")
+            actions.append { timer.start(minutes: m) }
+        }
+        // There is no end left to wait for once the episode has finished
+        if AudioPlayer.shared.state != .ended {
+            sheet.addButton(withTitle: "End of episode")
+            actions.append { timer.startEndOfEpisode() }
+        }
+        if timer.isActive {
+            sheet.destructiveButtonIndex = sheet.addButton(withTitle: "Turn Off Timer")
+            actions.append { timer.cancel() }
+        }
+        sheet.cancelButtonIndex = sheet.addButton(withTitle: "Cancel")
+        sleepActions = actions
+        sheet.show(in: view)
+    }
+
+    func actionSheet(_ actionSheet: UIActionSheet, clickedButtonAt buttonIndex: Int) {
+        let actions = sleepActions
+        sleepActions = []
+        // Cancel sits past the end of the list
+        guard buttonIndex >= 0, buttonIndex < actions.count else { return }
+        actions[buttonIndex]()
+    }
+
     // MARK: - Queue
 
     private func refreshQueue() {
         guard tableView != nil else { return }
         tableView.reloadData()
         updateEditButton()
+        renderState()   // the finished status reads differently with something queued
     }
 
     private func updateEditButton() {
