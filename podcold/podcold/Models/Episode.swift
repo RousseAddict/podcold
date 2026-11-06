@@ -120,12 +120,15 @@ class Episode: NSObject {
     // Internal so BackupManager can export/import it by key.
     static let playedGuidsKey = "played_episode_guids"
 
-    static func isPlayed(guid: String) -> Bool {
-        return (UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? []).contains(guid)
+    // The whole set from one read. Callers checking many episodes take it once per
+    // pass: the old per-guid isPlayed() re-read and scanned the array — which only
+    // ever grows — for every single lookup.
+    static func playedGuids() -> Set<String> {
+        return Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
     }
 
     static func markPlayed(guid: String) {
-        var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
+        var set = playedGuids()
         set.insert(guid)
         UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
     }
@@ -133,7 +136,7 @@ class Episode: NSObject {
     // Deliberately replaying a finished episode has to undo the marker, or it
     // stays filtered out of the New Episodes lane while it is playing.
     static func unmarkPlayed(guid: String) {
-        var set = Set(UserDefaults.standard.stringArray(forKey: playedGuidsKey) ?? [])
+        var set = playedGuids()
         guard set.remove(guid) != nil else { return }
         UserDefaults.standard.set(Array(set), forKey: playedGuidsKey)
     }

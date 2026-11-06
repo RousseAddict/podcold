@@ -2,9 +2,16 @@ import UIKit
 
 class HomeVC: UIViewController {
     private var scrollView: UIScrollView!
+    // Each section is built into its own container, so a change to one rebuilds only
+    // that one, and stacking them is three frame assignments. A New Episodes result
+    // used to tear down and recreate the whole screen, grid included.
+    private let continueSection    = UIView()
+    private let newEpisodesSection = UIView()
+    private let podcastsSection    = UIView()
     private var podcasts:       [Podcast] = []
     private var recentEpisodes: [Episode] = []
     private var upNext:         [(Podcast, Episode)] = []
+    private var didBuild = false
     private var builtPodcastUrls: [String] = []
     private var builtRecentState: [String] = []
     private var builtUpNextGuids: [String] = []
@@ -12,8 +19,11 @@ class HomeVC: UIViewController {
     private var rebuildScheduled = false
     private var builtSyncing = false
     private weak var newEpisodesHeader: UILabel?
+    private weak var newEpisodesStrip: UIScrollView?
     private weak var syncTag: UIView?
     private weak var syncCountLabel: UILabel?
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -27,10 +37,31 @@ class HomeVC: UIViewController {
         scrollView = UIScrollView(frame: view.bounds)
         scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(scrollView)
+        for section in [continueSection, newEpisodesSection, podcastsSection] {
+            scrollView.addSubview(section)
+        }
+        // Coming back from the background with Home already on screen runs neither
+        // viewWillAppear nor viewDidAppear, so New Episodes stayed exactly as stale as
+        // it was when the app was left.
+        NotificationCenter.default.addObserver(self, selector: #selector(appWillEnterForeground),
+                                               name: UIApplication.willEnterForegroundNotification,
+                                               object: nil)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        reloadState()
+    }
+
+    @objc private func appWillEnterForeground() {
+        // Only while Home is the screen showing — otherwise the trip back to it runs
+        // viewWillAppear and viewDidAppear, which do the same.
+        guard isViewLoaded, view.window != nil else { return }
+        reloadState()
+        applyState()
+    }
+
+    private func reloadState() {
         podcasts       = Podcast.loadSubscriptions()
         recentEpisodes = Episode.loadRecents().filter { $0.savedPosition() > 30 }
 
@@ -38,7 +69,7 @@ class HomeVC: UIViewController {
         upNext = UpNextManager.shared.cachedUpNext(podcasts: podcasts, inProgressGuids: inProgressGuids)
         UpNextManager.shared.onUpdate = { [weak self] in self?.scheduleUpNextRebuild() }
         // Bound after refreshStale: that call flips the state synchronously, and the
-        // sync tag is already accounted for by viewDidAppear's build below.
+        // sync tag is already accounted for by the applyState() pass that follows.
         UpNextManager.shared.refreshStale(podcasts: podcasts, inProgressGuids: inProgressGuids)
         UpNextManager.shared.onSyncStateChange = { [weak self] in self?.updateSyncIndicator() }
     }
@@ -54,19 +85,41 @@ class HomeVC: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        applyState()
+    }
+
+    // Rebuilds only the sections whose content changed since they were last built —
+    // coming back from the player usually moves Continue Listening and nothing else.
+    private func applyState() {
         let newUrls   = podcasts.map { $0.feedUrl }
         let newState  = recentFingerprint()
         let newUpNext = upNext.map { $0.1.guid }
-        if newUrls != builtPodcastUrls || newState != builtRecentState || newUpNext != builtUpNextGuids {
-            builtPodcastUrls  = newUrls
-            builtRecentState  = newState
-            builtUpNextGuids  = newUpNext
-            rebuildLayout()
+        // The first pass builds everything. With no subscriptions every list equals its
+        // empty "built" value, so a fresh install used to show a blank screen instead
+        // of the empty state.
+        let first = !didBuild
+        didBuild = true
+        var changed = false
+        if first || newUrls != builtPodcastUrls {
+            builtPodcastUrls = newUrls
+            buildPodcastsSection()
+            changed = true
+        }
+        if first || newState != builtRecentState {
+            builtRecentState = newState
+            buildContinueSection()
+            changed = true
+        }
+        if first || newUpNext != builtUpNextGuids {
+            builtUpNextGuids = newUpNext
+            buildNewEpisodesSection()
+            changed = true
         } else {
-            // Nothing to rebuild, but a batch may have started or finished while the
-            // user was on another screen.
+            // Same cards, but a batch may have started or finished while the user was
+            // on another screen.
             updateSyncIndicator()
         }
+        if changed { stackSections() }
     }
 
     // The guid list alone cannot tell that an episode has *moved*: coming back from
@@ -80,10 +133,9 @@ class HomeVC: UIViewController {
 
     // MARK: - Layout
 
-    // UpNextManager streams one result per feed, and rebuildLayout tears down and
-    // recreates every subview — so 15 subscriptions used to mean 15 full rebuilds
-    // during the refresh, each one restarting the artwork loads it had just torn
-    // down. Coalesce the burst into a single pass.
+    // UpNextManager streams one result per feed. This coalesces results that land
+    // close together; ones that arrive seconds apart each rebuild, but only the New
+    // Episodes section, which keeps that cheap.
     private func scheduleUpNextRebuild() {
         guard !rebuildScheduled else { return }
         rebuildScheduled = true
@@ -91,79 +143,115 @@ class HomeVC: UIViewController {
             guard let self = self else { return }
             self.rebuildScheduled = false
             guard self.view.window != nil else { return }
+            // Swapping cards out from under a finger kills the swipe, and a strip
+            // appearing shifts the grid mid-scroll. Wait for the scrolling to settle.
+            if self.isUserScrolling {
+                self.scheduleUpNextRebuild()
+                return
+            }
             let refreshed = UpNextManager.shared.cachedUpNext(podcasts: self.podcasts,
                                                              inProgressGuids: self.inProgressGuids)
             let guids = refreshed.map { $0.1.guid }
             guard guids != self.builtUpNextGuids else { return }
             self.upNext = refreshed
             self.builtUpNextGuids = guids
-            self.rebuildLayout()
+            self.rebuildNewEpisodes()
         }
     }
 
-    private func rebuildLayout() {
-        scrollView.subviews.forEach { $0.removeFromSuperview() }
+    private var isUserScrolling: Bool {
+        return [scrollView, newEpisodesStrip].contains {
+            guard let s = $0 else { return false }
+            return s.isTracking || s.isDragging || s.isDecelerating
+        }
+    }
+
+    private func rebuildNewEpisodes() {
+        buildNewEpisodesSection()
+        stackSections()
+    }
+
+    // Sections stack top to bottom; an empty one has zero height and takes no space.
+    private func stackSections() {
+        var y: CGFloat = 12
+        for section in [continueSection, newEpisodesSection, podcastsSection] {
+            section.frame.origin.y = y
+            y += section.frame.height
+        }
+        scrollView.contentSize = CGSize(width: UIScreen.main.bounds.width, height: y + 80)
+    }
+
+    // Keeps the section's stacked position; stackSections() sets that.
+    private func resize(_ section: UIView, height: CGFloat) {
+        section.frame = CGRect(x: 0, y: section.frame.minY,
+                               width: UIScreen.main.bounds.width, height: height)
+    }
+
+    private func buildContinueSection() {
+        continueSection.subviews.forEach { $0.removeFromSuperview() }
+        guard !recentEpisodes.isEmpty else { resize(continueSection, height: 0); return }
+        let w = UIScreen.main.bounds.width
+        continueSection.addSubview(sectionHeader("Continue Listening", y: 0, w: w))
+        let cards = recentEpisodes.enumerated().map { episodeCard($0.element, index: $0.offset) }
+        continueSection.addSubview(cardStrip(cards, y: 34, w: w))
+        resize(continueSection, height: 34 + 158 + 16)
+    }
+
+    private func buildNewEpisodesSection() {
+        // A result landing mid-batch must not throw the user back to the first card.
+        let keptOffsetX = newEpisodesStrip?.contentOffset.x ?? 0
+        newEpisodesSection.subviews.forEach { $0.removeFromSuperview() }
         newEpisodesHeader = nil
+        newEpisodesStrip  = nil
         syncTag           = nil
         syncCountLabel    = nil
-        let w = UIScreen.main.bounds.width
-        var y: CGFloat = 12
-
-        if !recentEpisodes.isEmpty {
-            scrollView.addSubview(sectionHeader("Continue Listening", y: y, w: w))
-            y += 34
-
-            let stripH: CGFloat = 158
-            let strip = UIScrollView(frame: CGRect(x: 0, y: y, width: w, height: stripH))
-            strip.showsHorizontalScrollIndicator = false
-            strip.showsVerticalScrollIndicator   = false
-            var cx: CGFloat = 12
-            for (i, ep) in recentEpisodes.enumerated() {
-                let card = episodeCard(ep, index: i)
-                card.frame = CGRect(x: cx, y: 4, width: 120, height: 150)
-                strip.addSubview(card)
-                cx += 130
-            }
-            strip.contentSize = CGSize(width: cx + 12, height: stripH)
-            scrollView.addSubview(strip)
-            y += stripH + 16
-        }
 
         // Keep the header (and its sync tag) up while a batch is running even with no
         // cards yet — that first stretch, when the lane is still empty, is exactly
         // when the user has no other sign that anything is happening.
         builtSyncing = UpNextManager.shared.isSyncing
-        if !upNext.isEmpty || builtSyncing {
-            let header = sectionHeader("New Episodes", y: y, w: w)
-            scrollView.addSubview(header)
-            newEpisodesHeader = header
-            if builtSyncing { showSyncTag() }
-            y += 34
+        guard !upNext.isEmpty || builtSyncing else { resize(newEpisodesSection, height: 0); return }
+        let w = UIScreen.main.bounds.width
+        let header = sectionHeader("New Episodes", y: 0, w: w)
+        newEpisodesSection.addSubview(header)
+        newEpisodesHeader = header
+        if builtSyncing { showSyncTag() }
+        guard !upNext.isEmpty else { resize(newEpisodesSection, height: 34); return }
 
-            if !upNext.isEmpty {
-                let stripH: CGFloat = 158
-                let strip = UIScrollView(frame: CGRect(x: 0, y: y, width: w, height: stripH))
-                strip.showsHorizontalScrollIndicator = false
-                strip.showsVerticalScrollIndicator   = false
-                var cx: CGFloat = 12
-                for (i, pair) in upNext.enumerated() {
-                    let card = upNextCard(pair.1, podcast: pair.0, index: i)
-                    card.frame = CGRect(x: cx, y: 4, width: 120, height: 150)
-                    strip.addSubview(card)
-                    cx += 130
-                }
-                strip.contentSize = CGSize(width: cx + 12, height: stripH)
-                scrollView.addSubview(strip)
-                y += stripH + 16
-            }
+        let cards = upNext.enumerated().map { upNextCard($0.element.1, podcast: $0.element.0, index: $0.offset) }
+        let strip = cardStrip(cards, y: 34, w: w)
+        let maxOffsetX = max(0, strip.contentSize.width - strip.bounds.width)
+        strip.contentOffset = CGPoint(x: min(keptOffsetX, maxOffsetX), y: 0)
+        newEpisodesSection.addSubview(strip)
+        newEpisodesStrip = strip
+        resize(newEpisodesSection, height: 34 + 158 + 16)
+    }
+
+    // Horizontal strip of 120x150 cards — Continue Listening and New Episodes.
+    private func cardStrip(_ cards: [UIView], y: CGFloat, w: CGFloat) -> UIScrollView {
+        let stripH: CGFloat = 158
+        let strip = UIScrollView(frame: CGRect(x: 0, y: y, width: w, height: stripH))
+        strip.showsHorizontalScrollIndicator = false
+        strip.showsVerticalScrollIndicator   = false
+        var cx: CGFloat = 12
+        for card in cards {
+            card.frame = CGRect(x: cx, y: 4, width: 120, height: 150)
+            strip.addSubview(card)
+            cx += 130
         }
+        strip.contentSize = CGSize(width: cx + 12, height: stripH)
+        return strip
+    }
 
-        scrollView.addSubview(sectionHeader("My Podcasts", y: y, w: w))
-        y += 34
+    private func buildPodcastsSection() {
+        podcastsSection.subviews.forEach { $0.removeFromSuperview() }
+        let w = UIScreen.main.bounds.width
+        podcastsSection.addSubview(sectionHeader("My Podcasts", y: 0, w: w))
+        var y: CGFloat = 34
 
         if podcasts.isEmpty {
             let empty = emptyState(y: y, w: w)
-            scrollView.addSubview(empty)
+            podcastsSection.addSubview(empty)
             y += 150
         } else {
             let cols:  CGFloat = 3
@@ -178,13 +266,13 @@ class HomeVC: UIViewController {
                 cell.frame = CGRect(x: pad + col * (cellW + gap),
                                     y: y + row * (cellH + gap),
                                     width: cellW, height: cellH)
-                scrollView.addSubview(cell)
+                podcastsSection.addSubview(cell)
             }
             let rows = ceil(CGFloat(podcasts.count) / cols)
             y += rows * (cellH + gap)
         }
 
-        scrollView.contentSize = CGSize(width: w, height: y + 80)
+        resize(podcastsSection, height: y)
     }
 
     // MARK: - Sync indicator
@@ -195,8 +283,8 @@ class HomeVC: UIViewController {
         guard syncing != builtSyncing else { updateSyncCount(); return }
         builtSyncing = syncing
         // With no cards yet the header only exists while syncing, so its appearing
-        // or disappearing shifts everything below it — that needs a full pass.
-        guard !upNext.isEmpty else { rebuildLayout(); return }
+        // or disappearing shifts everything below it — rebuild the section and restack.
+        guard !upNext.isEmpty else { rebuildNewEpisodes(); return }
         if syncing { showSyncTag() } else { hideSyncTag() }
     }
 
@@ -463,7 +551,8 @@ class HomeVC: UIViewController {
         ep.autoDeleteIfEnabled()
         recentEpisodes.remove(at: sender.tag)
         builtRecentState = recentFingerprint()
-        rebuildLayout()
+        buildContinueSection()
+        stackSections()
     }
 
     @objc private func upNextTapped(_ sender: UIButton) {
@@ -481,7 +570,7 @@ class HomeVC: UIViewController {
         LatestEpisodeCache.remove(feedUrl: podcast.feedUrl)
         upNext.remove(at: sender.tag)
         builtUpNextGuids = upNext.map { $0.1.guid }
-        rebuildLayout()
+        rebuildNewEpisodes()
     }
 
     @objc private func podcastTapped(_ tap: UITapGestureRecognizer) {

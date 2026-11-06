@@ -67,6 +67,13 @@ class AsyncImageView: UIImageView {
     // are called there and every completion is delivered there, so no lock is needed.
     private static var inFlight: [NSString: [(UIImage) -> Void]] = [:]
 
+    // MARK: - Recent failures
+    // A dead or unreachable artwork URL was asked for again on every rebuild, each
+    // attempt holding the serial image lane for up to its 15 s timeout while the
+    // artwork behind it waited. Keyed and confined to the main thread like inFlight.
+    private static var failedAt: [NSString: Date] = [:]
+    private static let failureRetryInterval: TimeInterval = 3 * 60
+
     // MARK: - Instance state
     private var loadingURL: String?
 
@@ -135,6 +142,13 @@ class AsyncImageView: UIImageView {
         let path = diskPath(for: url, targetPx: targetPx)
         let key = cacheKey(url: url, targetPx: targetPx)
 
+        // Failed recently at this size — not worth the lane again yet. The caller
+        // gets what a failure gives it: no callback, and the view stays blank.
+        if let failed = failedAt[key] {
+            guard Date().timeIntervalSince(failed) >= failureRetryInterval else { return }
+            failedAt.removeValue(forKey: key)
+        }
+
         // Already being fetched at this size — just wait for the result.
         if inFlight[key] != nil {
             inFlight[key]?.append(completion)
@@ -175,8 +189,10 @@ class AsyncImageView: UIImageView {
 
     // Main thread only. Always clears the in-flight entry, including on failure —
     // leaving it behind would make a URL that failed once un-retryable for the rest
-    // of the app's life. A nil image simply notifies nobody.
+    // of the app's life. A nil image notifies nobody and is remembered in failedAt,
+    // which retries it after failureRetryInterval.
     private static func deliver(_ key: NSString, _ image: UIImage?) {
+        if image == nil { failedAt[key] = Date() }
         guard let waiters = inFlight.removeValue(forKey: key) else { return }
         guard let image = image else { return }
         for waiter in waiters { waiter(image) }

@@ -13,22 +13,45 @@ class LatestEpisodeCache {
         return UserDefaults.standard.dictionary(forKey: key) as? [String: [String: Any]] ?? [:]
     }
 
-    // nil = no cache entry yet, or feed had no qualifying unplayed episode
-    static func cachedEpisode(feedUrl: String) -> Episode? {
-        guard let entry = loadRaw()[feedUrl], let epDict = entry["episode"] as? [String: Any] else { return nil }
-        return Episode.from(dict: epDict)
+    // Every entry from a single UserDefaults read. HomeVC looks up each subscription on
+    // every appearance, and reading per lookup decoded the whole dict — every cached
+    // episode, show notes included — twice per subscription.
+    struct Snapshot {
+        fileprivate let raw: [String: [String: Any]]
+
+        // nil = no cache entry yet, or feed had no qualifying unplayed episode
+        func episode(feedUrl: String) -> Episode? {
+            guard let epDict = raw[feedUrl]?["episode"] as? [String: Any] else { return nil }
+            return Episode.from(dict: epDict)
+        }
+
+        func isStale(feedUrl: String) -> Bool {
+            guard let checkedAt = raw[feedUrl]?["checkedAt"] as? TimeInterval else { return true }
+            return Date().timeIntervalSince1970 - checkedAt > LatestEpisodeCache.staleInterval
+        }
+
+        // The lane's sort key, parsed once when the entry was stored. Entries written
+        // before it existed fall back to parsing the episode's date string.
+        func published(feedUrl: String, episode: Episode) -> Date {
+            if let ts = raw[feedUrl]?["published"] as? TimeInterval {
+                return Date(timeIntervalSince1970: ts)
+            }
+            return episode.pubDateAsDate() ?? .distantPast
+        }
     }
 
-    static func isStale(feedUrl: String) -> Bool {
-        guard let entry = loadRaw()[feedUrl], let checkedAt = entry["checkedAt"] as? TimeInterval else { return true }
-        return Date().timeIntervalSince1970 - checkedAt > staleInterval
+    static func snapshot() -> Snapshot {
+        return Snapshot(raw: loadRaw())
     }
 
     // episode == nil records that the feed was checked but nothing qualified
     static func store(feedUrl: String, episode: Episode?) {
         var raw = loadRaw()
         var entry: [String: Any] = ["checkedAt": Date().timeIntervalSince1970]
-        if let episode = episode { entry["episode"] = episode.toDict() }
+        if let episode = episode {
+            entry["episode"] = episode.toDict()
+            entry["published"] = (episode.pubDateAsDate() ?? .distantPast).timeIntervalSince1970
+        }
         raw[feedUrl] = entry
         UserDefaults.standard.set(raw, forKey: key)
     }

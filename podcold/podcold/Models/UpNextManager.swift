@@ -68,15 +68,19 @@ class UpNextManager {
     var syncProgress: (current: Int, total: Int) { return (syncTotal - pending.count, syncTotal) }
 
     func cachedUpNext(podcasts: [Podcast], inProgressGuids: Set<String>) -> [(Podcast, Episode)] {
-        var results: [(Podcast, Episode)] = []
+        // One read of each store for the whole pass, not one per subscription.
+        let cache = LatestEpisodeCache.snapshot()
+        let played = Episode.playedGuids()
+        var results: [(published: Date, podcast: Podcast, episode: Episode)] = []
         for podcast in podcasts {
-            guard let ep = LatestEpisodeCache.cachedEpisode(feedUrl: podcast.feedUrl) else { continue }
-            guard !inProgressGuids.contains(ep.guid), !Episode.isPlayed(guid: ep.guid) else { continue }
-            results.append((podcast, ep))
+            guard let ep = cache.episode(feedUrl: podcast.feedUrl) else { continue }
+            guard !inProgressGuids.contains(ep.guid), !played.contains(ep.guid) else { continue }
+            results.append((cache.published(feedUrl: podcast.feedUrl, episode: ep), podcast, ep))
         }
-        return results.sorted {
-            ($0.1.pubDateAsDate() ?? .distantPast) > ($1.1.pubDateAsDate() ?? .distantPast)
-        }
+        // Keys come from the loop above. Parsing inside the comparator ran the date
+        // formatters twice per comparison — a hundred-odd parses for 15 cards, on the
+        // main thread, during the pop animation.
+        return results.sorted { $0.published > $1.published }.map { ($0.podcast, $0.episode) }
     }
 
     func refreshStale(podcasts: [Podcast], inProgressGuids: Set<String>) {
@@ -86,7 +90,8 @@ class UpNextManager {
         // in the count rather than restarting the tag at 1.
         let done = pending.isEmpty ? 0 : syncTotal - pending.count
         self.inProgressGuids = inProgressGuids
-        pending = podcasts.filter { LatestEpisodeCache.isStale(feedUrl: $0.feedUrl) }
+        let cache = LatestEpisodeCache.snapshot()
+        pending = podcasts.filter { cache.isStale(feedUrl: $0.feedUrl) }
         syncTotal = done + pending.count
         onSyncStateChange?()
         processNext()
@@ -109,8 +114,9 @@ class UpNextManager {
                 return
             }
             // Feed order is newest-first, so the window is simply the head of the list.
+            let played = Episode.playedGuids()
             let qualifying = episodes.prefix(UpNextManager.maxNewEpisodes).first {
-                !self.inProgressGuids.contains($0.guid) && !Episode.isPlayed(guid: $0.guid)
+                !self.inProgressGuids.contains($0.guid) && !played.contains($0.guid)
             }
             LatestEpisodeCache.store(feedUrl: podcast.feedUrl, episode: qualifying)
             // This batch already paid for the download and the parse, so hand the full
