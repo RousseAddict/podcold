@@ -1,4 +1,5 @@
 import UIKit
+import ImageIO
 
 class AsyncImageView: UIImageView {
 
@@ -189,12 +190,26 @@ class AsyncImageView: UIImageView {
     // the point size at 300 and then rendered at UIScreen scale, so it actually
     // produced 600 px bitmaps (1.4 MB each) regardless of how small the view was.
     //
+    // ImageIO shrinks while decoding. UIImage(data:) + draw(in:) decoded the whole
+    // source first: feeds carry a 1400-3000 px cover per episode, so every new
+    // episode card briefly held a 36 MB bitmap — the cap above only bounded the
+    // output. For JPEG the thumbnail comes from the decoder's own 1/2-1/4-1/8
+    // scaling, so the full-size bitmap never exists. All of it is iOS 4+.
+    //
     // Guards zero dimensions: UIGraphicsBeginImageContextWithOptions with {0,0}
     // raises NSInvalidArgumentException on iOS 6.
     private static func decode(_ data: Data, targetPx: CGFloat) -> UIImage? {
-        guard let raw = UIImage(data: data) else { return nil }
-        let rawW = raw.size.width * raw.scale
-        let rawH = raw.size.height * raw.scale
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: targetPx,
+            // Applies EXIF orientation, as UIImage(data:) used to.
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        let raw = UIImage(cgImage: thumb)
+        let rawW = CGFloat(thumb.width)
+        let rawH = CGFloat(thumb.height)
         guard rawW > 0, rawH > 0 else { return nil }
 
         let screenScale = UIScreen.main.scale

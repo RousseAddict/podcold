@@ -101,6 +101,13 @@ class UpNextManager {
         onSyncStateChange?()
         FeedParser.parse(feedUrl: podcast.feedUrl, podcastTitle: podcast.title) { [weak self] episodes in
             guard let self = self else { return }
+            // Empty means the fetch failed — offline, timed out, or a captive portal's
+            // HTML page — not that the podcast has nothing new. Keep the card.
+            guard !episodes.isEmpty else {
+                LatestEpisodeCache.deferRetry(feedUrl: podcast.feedUrl)
+                self.processNext()
+                return
+            }
             // Feed order is newest-first, so the window is simply the head of the list.
             let qualifying = episodes.prefix(UpNextManager.maxNewEpisodes).first {
                 !self.inProgressGuids.contains($0.guid) && !Episode.isPlayed(guid: $0.guid)

@@ -18,9 +18,19 @@ class FeedParser: NSObject, XMLParserDelegate {
     // abortParsing(), so a deeper re-parse only reads as far as it needs to.
     static let pageSize = 20
 
+    // Headroom over `limit` when cutting a download short: the cut counts every
+    // </item>, but the parser skips items with no audio, so an exact cut could
+    // come up a few episodes short.
+    private static let itemSlack = 5
+
+    // Nothing is kept, so the download stops once the page is in hand. Parsing
+    // already stopped at `limit`, but the transfer used to run to the end anyway —
+    // for Hugo Décrypte that is 16.8 MB (acast doesn't gzip) to use the first
+    // 210 KB, and too much to finish inside the 20 s timeout on cellular at all.
     static func parse(feedUrl: String, podcastTitle: String, limit: Int = pageSize,
                       completion: @escaping ([Episode]) -> Void) {
-        parseKeepingData(feedUrl: feedUrl, podcastTitle: podcastTitle, limit: limit) { eps, _ in
+        load(feedUrl: feedUrl, podcastTitle: podcastTitle, limit: limit,
+             maxItems: limit + itemSlack) { eps, _ in
             completion(eps)
         }
     }
@@ -36,9 +46,17 @@ class FeedParser: NSObject, XMLParserDelegate {
     }
 
     // As `parse`, but also hands back the raw feed bytes so the caller can page
-    // deeper without a second download.
+    // deeper without a second download — which needs the whole document, so this
+    // path never cuts the transfer short.
     static func parseKeepingData(feedUrl: String, podcastTitle: String, limit: Int = pageSize,
                                  completion: @escaping ([Episode], Data?) -> Void) {
+        load(feedUrl: feedUrl, podcastTitle: podcastTitle, limit: limit,
+             maxItems: 0, completion: completion)
+    }
+
+    // maxItems: stop the download after this many items; 0 = fetch it all.
+    private static func load(feedUrl: String, podcastTitle: String, limit: Int, maxItems: Int,
+                             completion: @escaping ([Episode], Data?) -> Void) {
         // Use CurlFetcher (libcurl + OpenSSL) — handles GCM ciphers that NSURLConnection
         // (Apple Secure Transport) cannot negotiate on iOS 6.
         //
@@ -62,10 +80,10 @@ class FeedParser: NSObject, XMLParserDelegate {
             }
         }
 
-        CurlFetcher.fetchFeed(url: feedUrl) { data in
+        CurlFetcher.fetchFeed(url: feedUrl, maxItems: maxItems) { data in
             if data != nil { finish(data); return }
             guard let http = httpFallback else { finish(nil); return }
-            CurlFetcher.fetchFeed(url: http) { fallbackData in finish(fallbackData) }
+            CurlFetcher.fetchFeed(url: http, maxItems: maxItems) { fallbackData in finish(fallbackData) }
         }
     }
 

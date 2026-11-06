@@ -6,8 +6,14 @@ import Foundation
 private let curlDataWriteCallback: @convention(c) (UnsafeRawPointer?, Int, Int, UnsafeMutableRawPointer?) -> Int = { ptr, size, nmemb, userdata in
     guard let ptr = ptr, let userdata = userdata else { return 0 }
     let bytes = size * nmemb
-    let buf = Unmanaged<NSMutableData>.fromOpaque(userdata).takeUnretainedValue()
-    buf.append(ptr, length: bytes)
+    let box = Unmanaged<CurlDataBox>.fromOpaque(userdata).takeUnretainedValue()
+    box.buf.append(ptr, length: bytes)
+    // Returning short of `bytes` makes curl abort with CURLE_WRITE_ERROR;
+    // syncFetchData treats that as success when the limit is why.
+    if box.itemLimit > 0 && box.countItemEnds() >= box.itemLimit {
+        box.reachedLimit = true
+        return 0
+    }
     return bytes
 }
 
@@ -28,6 +34,43 @@ private let curlProgressCallback: @convention(c) (UnsafeMutableRawPointer?, Int6
     let progress = Float(dlnow) / Float(dltotal)
     DispatchQueue.main.async { box.progressHandler?(progress) }
     return 0
+}
+
+// MARK: - In-memory state container
+//
+// Feeds have no server-side paging and run to megabytes, but the parser only
+// reads the first page. With itemLimit set, the transfer stops once that many
+// closing </item> / </entry> tags have arrived — everything after them is bytes
+// the parser would never look at.
+
+private final class CurlDataBox {
+    let buf = NSMutableData()
+    var itemLimit = 0          // 0 = no limit
+    var reachedLimit = false
+
+    private static let endTags: [[UInt8]] = [Array("</item>".utf8), Array("</entry>".utf8)]
+    private var itemEnds = 0
+    // Per tag: where the next search starts. Every match starting before it has
+    // been counted, so a tag split across two chunks is found exactly once.
+    private var searchFrom = [0, 0]
+
+    // Only searches what arrived since the last call (plus a tag's length of overlap).
+    func countItemEnds() -> Int {
+        let base = buf.bytes
+        let len = buf.length
+        for (i, tag) in CurlDataBox.endTags.enumerated() {
+            var from = searchFrom[i]
+            tag.withUnsafeBytes { t in
+                while from + tag.count <= len,
+                      let hit = memmem(base + from, len - from, t.baseAddress, tag.count) {
+                    itemEnds += 1
+                    from = base.distance(to: UnsafeRawPointer(hit)) + tag.count
+                }
+            }
+            searchFrom[i] = max(from, len - tag.count + 1)
+        }
+        return itemEnds
+    }
 }
 
 // MARK: - Download state container
@@ -86,23 +129,27 @@ class CurlFetcher {
     // Artwork and other small images. Separate lane so a feed refresh batch or an
     // episode download can never delay the images the user is looking at.
     static func fetchImage(url: String, timeout: Int = 15, completion: @escaping (Data?) -> Void) {
-        fetch(url: url, timeout: timeout, lane: imageLane, gzip: false, completion: completion)
+        fetch(url: url, timeout: timeout, lane: imageLane, gzip: false, maxItems: 0, completion: completion)
     }
 
     // RSS/Atom feeds — gzip enabled, these are highly compressible XML.
-    static func fetchFeed(url: String, timeout: Int = 20, completion: @escaping (Data?) -> Void) {
-        fetch(url: url, timeout: timeout, lane: feedLane, gzip: true, completion: completion)
+    // maxItems > 0 stops the transfer after that many items (see CurlDataBox).
+    static func fetchFeed(url: String, timeout: Int = 20, maxItems: Int = 0,
+                          completion: @escaping (Data?) -> Void) {
+        fetch(url: url, timeout: timeout, lane: feedLane, gzip: true, maxItems: maxItems, completion: completion)
     }
 
     private static func fetch(url: String,
                               timeout: Int,
                               lane: CurlLane,
                               gzip: Bool,
+                              maxItems: Int,
                               completion: @escaping (Data?) -> Void) {
         let fetcher = CurlFetcher()
         retain(fetcher)
         lane.queue.async {
-            let data = fetcher.syncFetchData(url: url, timeout: timeout, lane: lane, gzip: gzip)
+            let data = fetcher.syncFetchData(url: url, timeout: timeout, lane: lane, gzip: gzip,
+                                             maxItems: maxItems)
             DispatchQueue.main.async {
                 release(fetcher)
                 completion(data)
@@ -142,12 +189,13 @@ class CurlFetcher {
 
     // MARK: - Synchronous implementations (run on background thread)
 
-    private func syncFetchData(url: String, timeout: Int, lane: CurlLane, gzip: Bool) -> Data? {
+    private func syncFetchData(url: String, timeout: Int, lane: CurlLane, gzip: Bool, maxItems: Int) -> Data? {
         _ = CurlFetcher.curlGlobalInit  // ensures curl_global_init ran once before any easy_init
         guard let h = lane.borrowHandle() else { return nil }
 
-        let buf = NSMutableData()
-        let ptr = Unmanaged.passUnretained(buf).toOpaque()
+        let box = CurlDataBox()
+        box.itemLimit = maxItems
+        let ptr = Unmanaged.passUnretained(box).toOpaque()
 
         url.withCString { curl_bridge_set_url(h, $0) }
         curl_bridge_set_ssl_noverify(h)
@@ -159,10 +207,15 @@ class CurlFetcher {
         curl_bridge_set_write_fn(h, curlDataWriteCallback, ptr)
 
         let rc = curl_bridge_perform(h)
-        guard rc == 0 else { return nil }
+        // Stopping at the item limit surfaces as a write error, but everything up
+        // to that point arrived intact — and it is all the caller asked for. The
+        // aborted connection is closed rather than kept alive, which costs the
+        // next request to that host a handshake: far cheaper than the rest of a
+        // multi-megabyte feed.
+        guard rc == 0 || box.reachedLimit else { return nil }
         let httpCode = curl_bridge_response_code(h)
         guard httpCode == 200 else { return nil }
-        return buf as Data
+        return box.buf as Data
     }
 
     private func syncDownload(url: String, outputPath: String, progress: ((Float) -> Void)?) -> Bool {

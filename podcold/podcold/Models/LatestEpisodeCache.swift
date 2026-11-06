@@ -7,6 +7,7 @@ import Foundation
 class LatestEpisodeCache {
     private static let key = "latest_episode_cache"
     private static let staleInterval: TimeInterval = 45 * 60
+    private static let failureRetryInterval: TimeInterval = 5 * 60
 
     private static func loadRaw() -> [String: [String: Any]] {
         return UserDefaults.standard.dictionary(forKey: key) as? [String: [String: Any]] ?? [:]
@@ -28,6 +29,20 @@ class LatestEpisodeCache {
         var raw = loadRaw()
         var entry: [String: Any] = ["checkedAt": Date().timeIntervalSince1970]
         if let episode = episode { entry["episode"] = episode.toDict() }
+        raw[feedUrl] = entry
+        UserDefaults.standard.set(raw, forKey: key)
+    }
+
+    // A failed check says nothing about the feed, so it must not overwrite what the
+    // last good one found — storing nil here is what emptied the lane whenever the
+    // app opened offline. Keeps the entry's episode and backdates checkedAt so the
+    // feed goes stale again after failureRetryInterval rather than the full 45 min
+    // (and not on every Home appearance, which on a bad link would re-burn the
+    // timeout each time).
+    static func deferRetry(feedUrl: String) {
+        var raw = loadRaw()
+        var entry = raw[feedUrl] ?? [:]
+        entry["checkedAt"] = Date().timeIntervalSince1970 - staleInterval + failureRetryInterval
         raw[feedUrl] = entry
         UserDefaults.standard.set(raw, forKey: key)
     }
