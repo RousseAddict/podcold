@@ -31,6 +31,13 @@ void        curl_bridge_set_connect_timeout(CurlHandle h, long secs);
 void        curl_bridge_set_low_speed_abort(CurlHandle h, long bytes_per_sec, long secs);
 void        curl_bridge_set_accept_encoding(CurlHandle h);
 void        curl_bridge_set_write_fn(CurlHandle h, CurlBridgeWriteFn fn, void *userdata);
+/* Response headers, one line per call — same shape as the write callback. */
+void        curl_bridge_set_header_fn(CurlHandle h, CurlBridgeWriteFn fn, void *userdata);
+/* Conditional GET: sends If-None-Match / If-Modified-Since for whichever value is
+   non-empty. Returns the header list (NULL when both are empty), which must stay
+   alive until curl_bridge_perform returns and then go to curl_bridge_free_headers. */
+void       *curl_bridge_set_validators(CurlHandle h, const char *etag, const char *last_modified);
+void        curl_bridge_free_headers(void *list);
 void        curl_bridge_set_progress_fn(CurlHandle h, CurlBridgeProgressFn fn, void *clientp);
 int         curl_bridge_perform(CurlHandle h);
 long        curl_bridge_response_code(CurlHandle h);

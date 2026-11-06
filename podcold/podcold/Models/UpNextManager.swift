@@ -104,8 +104,33 @@ class UpNextManager {
         refreshing = true
         let podcast = pending.removeFirst()
         onSyncStateChange?()
-        FeedParser.parse(feedUrl: podcast.feedUrl, podcastTitle: podcast.title) { [weak self] episodes in
+        // A 304 only helps with the parsed page to pick from, and Caches can be purged
+        // — without it, send no validators and get the page.
+        let validators = EpisodeListCache.exists(feedUrl: podcast.feedUrl)
+            ? LatestEpisodeCache.snapshot().validators(feedUrl: podcast.feedUrl)
+            : FeedValidators()
+        FeedParser.parseIfChanged(feedUrl: podcast.feedUrl, podcastTitle: podcast.title,
+                                  validators: validators) { [weak self] check in
             guard let self = self else { return }
+            let episodes: [Episode]
+            let kept: FeedValidators
+            switch check {
+            case .episodes(let parsed, let received):
+                episodes = parsed
+                kept = received
+                // This batch already paid for the download and the parse, so hand the
+                // full list to EpisodeListCache too — opening the podcast afterwards is
+                // then free.
+                EpisodeListCache.store(feedUrl: podcast.feedUrl, episodes: parsed)
+            case .unchanged:
+                // Nothing new on the server — pick again from the page cached last time,
+                // since the played set or the window may have moved since.
+                episodes = EpisodeListCache.cached(feedUrl: podcast.feedUrl)
+                kept = validators
+            case .failed:
+                episodes = []
+                kept = validators
+            }
             // Empty means the fetch failed — offline, timed out, or a captive portal's
             // HTML page — not that the podcast has nothing new. Keep the card.
             guard !episodes.isEmpty else {
@@ -118,10 +143,7 @@ class UpNextManager {
             let qualifying = episodes.prefix(UpNextManager.maxNewEpisodes).first {
                 !self.inProgressGuids.contains($0.guid) && !played.contains($0.guid)
             }
-            LatestEpisodeCache.store(feedUrl: podcast.feedUrl, episode: qualifying)
-            // This batch already paid for the download and the parse, so hand the full
-            // list to EpisodeListCache too — opening the podcast afterwards is then free.
-            EpisodeListCache.store(feedUrl: podcast.feedUrl, episodes: episodes)
+            LatestEpisodeCache.store(feedUrl: podcast.feedUrl, episode: qualifying, validators: kept)
             self.onUpdate?()
             self.processNext()
         }

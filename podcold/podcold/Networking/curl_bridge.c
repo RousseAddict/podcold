@@ -1,4 +1,5 @@
 #include "curl_bridge.h"
+#include <stdio.h>
 #include <curl/curl.h>
 
 void curl_bridge_global_init(void) {
@@ -58,6 +59,33 @@ void curl_bridge_set_accept_encoding(CurlHandle h) {
 void curl_bridge_set_write_fn(CurlHandle h, CurlBridgeWriteFn fn, void *userdata) {
     curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, fn);
     curl_easy_setopt(h, CURLOPT_WRITEDATA, userdata);
+}
+
+void curl_bridge_set_header_fn(CurlHandle h, CurlBridgeWriteFn fn, void *userdata) {
+    curl_easy_setopt(h, CURLOPT_HEADERFUNCTION, fn);
+    curl_easy_setopt(h, CURLOPT_HEADERDATA, userdata);
+}
+
+/* Only stored values are sent back, verbatim — HTTP compares them as opaque
+   strings, so there is no date parsing. curl_easy_reset clears the option but
+   never frees the list, hence handing it back to the caller. */
+void *curl_bridge_set_validators(CurlHandle h, const char *etag, const char *last_modified) {
+    struct curl_slist *list = NULL, *next;
+    char line[1024];
+    if (etag && *etag) {
+        snprintf(line, sizeof line, "If-None-Match: %s", etag);
+        if ((next = curl_slist_append(list, line))) list = next;
+    }
+    if (last_modified && *last_modified) {
+        snprintf(line, sizeof line, "If-Modified-Since: %s", last_modified);
+        if ((next = curl_slist_append(list, line))) list = next;
+    }
+    if (list) curl_easy_setopt(h, CURLOPT_HTTPHEADER, list);
+    return list;
+}
+
+void curl_bridge_free_headers(void *list) {
+    curl_slist_free_all((struct curl_slist *)list);   /* NULL is fine */
 }
 
 void curl_bridge_set_progress_fn(CurlHandle h, CurlBridgeProgressFn fn, void *clientp) {

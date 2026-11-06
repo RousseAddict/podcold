@@ -17,6 +17,15 @@ private let curlDataWriteCallback: @convention(c) (UnsafeRawPointer?, Int, Int, 
     return bytes
 }
 
+// Header callback for conditional feed requests — one response header line per call.
+private let curlHeaderCallback: @convention(c) (UnsafeRawPointer?, Int, Int, UnsafeMutableRawPointer?) -> Int = { ptr, size, nmemb, userdata in
+    let bytes = size * nmemb
+    guard let ptr = ptr, let userdata = userdata else { return bytes }
+    let box = Unmanaged<CurlDataBox>.fromOpaque(userdata).takeUnretainedValue()
+    box.readHeader(ptr, length: bytes)
+    return bytes
+}
+
 // Write callback for file-based downloads
 private let curlFileWriteCallback: @convention(c) (UnsafeRawPointer?, Int, Int, UnsafeMutableRawPointer?) -> Int = { ptr, size, nmemb, userdata in
     guard let ptr = ptr, let userdata = userdata else { return 0 }
@@ -36,6 +45,23 @@ private let curlProgressCallback: @convention(c) (UnsafeMutableRawPointer?, Int6
     return 0
 }
 
+// MARK: - Feed validators
+//
+// ETag / Last-Modified from a feed response, sent back on the next check so an
+// unchanged feed answers 304 with no body at all. "" = the server sent none.
+// Measured 2026-11-06: acast sends only an ETag, simplecast both; both answer 304.
+
+struct FeedValidators {
+    var etag = ""
+    var lastModified = ""
+}
+
+enum FeedResponse {
+    case data(Data, FeedValidators)
+    case notModified
+    case failed
+}
+
 // MARK: - In-memory state container
 //
 // Feeds have no server-side paging and run to megabytes, but the parser only
@@ -47,6 +73,23 @@ private final class CurlDataBox {
     let buf = NSMutableData()
     var itemLimit = 0          // 0 = no limit
     var reachedLimit = false
+    var validators = FeedValidators()
+
+    // Keeps ETag and Last-Modified. A redirect delivers one header block per hop, each
+    // opening with a status line, so that line clears what an earlier hop sent — only
+    // the final response's values count.
+    func readHeader(_ ptr: UnsafeRawPointer, length: Int) {
+        let line = String(decoding: UnsafeRawBufferPointer(start: ptr, count: length), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if line.hasPrefix("HTTP/") { validators = FeedValidators(); return }
+        guard let colon = line.firstIndex(of: ":") else { return }
+        let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        switch line[..<colon].lowercased() {
+        case "etag":          validators.etag = value
+        case "last-modified": validators.lastModified = value
+        default:              break
+        }
+    }
 
     private static let endTags: [[UInt8]] = [Array("</item>".utf8), Array("</entry>".utf8)]
     private var itemEnds = 0
@@ -129,14 +172,21 @@ class CurlFetcher {
     // Artwork and other small images. Separate lane so a feed refresh batch or an
     // episode download can never delay the images the user is looking at.
     static func fetchImage(url: String, timeout: Int = 15, completion: @escaping (Data?) -> Void) {
-        fetch(url: url, timeout: timeout, lane: imageLane, gzip: false, maxItems: 0, completion: completion)
+        fetch(url: url, timeout: timeout, lane: imageLane, gzip: false, maxItems: 0,
+              validators: nil) { response in
+            if case .data(let data, _) = response { completion(data) } else { completion(nil) }
+        }
     }
 
     // RSS/Atom feeds — gzip enabled, these are highly compressible XML.
     // maxItems > 0 stops the transfer after that many items (see CurlDataBox).
+    // validators != nil makes it a conditional request: whatever it holds is sent
+    // back, and this response's own validators come back with the data.
     static func fetchFeed(url: String, timeout: Int = 20, maxItems: Int = 0,
-                          completion: @escaping (Data?) -> Void) {
-        fetch(url: url, timeout: timeout, lane: feedLane, gzip: true, maxItems: maxItems, completion: completion)
+                          validators: FeedValidators? = nil,
+                          completion: @escaping (FeedResponse) -> Void) {
+        fetch(url: url, timeout: timeout, lane: feedLane, gzip: true, maxItems: maxItems,
+              validators: validators, completion: completion)
     }
 
     private static func fetch(url: String,
@@ -144,15 +194,16 @@ class CurlFetcher {
                               lane: CurlLane,
                               gzip: Bool,
                               maxItems: Int,
-                              completion: @escaping (Data?) -> Void) {
+                              validators: FeedValidators?,
+                              completion: @escaping (FeedResponse) -> Void) {
         let fetcher = CurlFetcher()
         retain(fetcher)
         lane.queue.async {
-            let data = fetcher.syncFetchData(url: url, timeout: timeout, lane: lane, gzip: gzip,
-                                             maxItems: maxItems)
+            let response = fetcher.syncFetchData(url: url, timeout: timeout, lane: lane, gzip: gzip,
+                                                 maxItems: maxItems, validators: validators)
             DispatchQueue.main.async {
                 release(fetcher)
-                completion(data)
+                completion(response)
             }
         }
     }
@@ -189,9 +240,10 @@ class CurlFetcher {
 
     // MARK: - Synchronous implementations (run on background thread)
 
-    private func syncFetchData(url: String, timeout: Int, lane: CurlLane, gzip: Bool, maxItems: Int) -> Data? {
+    private func syncFetchData(url: String, timeout: Int, lane: CurlLane, gzip: Bool, maxItems: Int,
+                               validators: FeedValidators?) -> FeedResponse {
         _ = CurlFetcher.curlGlobalInit  // ensures curl_global_init ran once before any easy_init
-        guard let h = lane.borrowHandle() else { return nil }
+        guard let h = lane.borrowHandle() else { return .failed }
 
         let box = CurlDataBox()
         box.itemLimit = maxItems
@@ -206,16 +258,30 @@ class CurlFetcher {
         if gzip { curl_bridge_set_accept_encoding(h) }
         curl_bridge_set_write_fn(h, curlDataWriteCallback, ptr)
 
+        // The list must outlive the transfer, so it is freed on the way out; the
+        // option still pointing at it is cleared by the next borrowHandle() reset.
+        var headerList: UnsafeMutableRawPointer?
+        if let v = validators {
+            headerList = v.etag.withCString { etag in
+                v.lastModified.withCString { lastModified in
+                    curl_bridge_set_validators(h, etag, lastModified)
+                }
+            }
+            curl_bridge_set_header_fn(h, curlHeaderCallback, ptr)
+        }
+        defer { curl_bridge_free_headers(headerList) }
+
         let rc = curl_bridge_perform(h)
         // Stopping at the item limit surfaces as a write error, but everything up
         // to that point arrived intact — and it is all the caller asked for. The
         // aborted connection is closed rather than kept alive, which costs the
         // next request to that host a handshake: far cheaper than the rest of a
         // multi-megabyte feed.
-        guard rc == 0 || box.reachedLimit else { return nil }
+        guard rc == 0 || box.reachedLimit else { return .failed }
         let httpCode = curl_bridge_response_code(h)
-        guard httpCode == 200 else { return nil }
-        return box.buf as Data
+        if httpCode == 304 && validators != nil { return .notModified }
+        guard httpCode == 200 else { return .failed }
+        return .data(box.buf as Data, box.validators)
     }
 
     private func syncDownload(url: String, outputPath: String, progress: ((Float) -> Void)?) -> Bool {

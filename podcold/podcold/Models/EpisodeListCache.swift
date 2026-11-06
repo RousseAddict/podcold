@@ -39,6 +39,11 @@ class EpisodeListCache {
         return arr.map { Episode.from(dict: $0) }
     }
 
+    // Whether a parsed first page is on disk — iOS can purge Caches at any time.
+    static func exists(feedUrl: String) -> Bool {
+        return FileManager.default.fileExists(atPath: path(for: feedUrl))
+    }
+
     static func store(feedUrl: String, episodes: [Episode]) {
         guard !episodes.isEmpty else { return }
         let dicts = episodes.map { $0.toDict() }

@@ -38,20 +38,31 @@ class LatestEpisodeCache {
             }
             return episode.pubDateAsDate() ?? .distantPast
         }
+
+        // Sent back on the next check of this feed, so an unchanged one answers 304.
+        func validators(feedUrl: String) -> FeedValidators {
+            let entry = raw[feedUrl]
+            return FeedValidators(etag: entry?["etag"] as? String ?? "",
+                                  lastModified: entry?["lastModified"] as? String ?? "")
+        }
     }
 
     static func snapshot() -> Snapshot {
         return Snapshot(raw: loadRaw())
     }
 
-    // episode == nil records that the feed was checked but nothing qualified
-    static func store(feedUrl: String, episode: Episode?) {
+    // episode == nil records that the feed was checked but nothing qualified.
+    // remove() and clear() drop the validators along with the rest, so the check after
+    // either is a full one — always correct, if not the cheapest.
+    static func store(feedUrl: String, episode: Episode?, validators: FeedValidators) {
         var raw = loadRaw()
         var entry: [String: Any] = ["checkedAt": Date().timeIntervalSince1970]
         if let episode = episode {
             entry["episode"] = episode.toDict()
             entry["published"] = (episode.pubDateAsDate() ?? .distantPast).timeIntervalSince1970
         }
+        if !validators.etag.isEmpty         { entry["etag"] = validators.etag }
+        if !validators.lastModified.isEmpty { entry["lastModified"] = validators.lastModified }
         raw[feedUrl] = entry
         UserDefaults.standard.set(raw, forKey: key)
     }

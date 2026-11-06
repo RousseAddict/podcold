@@ -23,15 +23,28 @@ class FeedParser: NSObject, XMLParserDelegate {
     // come up a few episodes short.
     private static let itemSlack = 5
 
-    // Nothing is kept, so the download stops once the page is in hand. Parsing
-    // already stopped at `limit`, but the transfer used to run to the end anyway —
-    // for Hugo Décrypte that is 16.8 MB (acast doesn't gzip) to use the first
-    // 210 KB, and too much to finish inside the 20 s timeout on cellular at all.
-    static func parse(feedUrl: String, podcastTitle: String, limit: Int = pageSize,
-                      completion: @escaping ([Episode]) -> Void) {
+    // What a New Episodes check found — see parseIfChanged.
+    enum Check {
+        case episodes([Episode], FeedValidators)
+        case unchanged
+        case failed
+    }
+
+    // The New Episodes batch's entry point. Nothing is kept, so the download stops
+    // once the page is in hand. Parsing already stopped at `limit`, but the
+    // transfer used to run to the end anyway — for Hugo Décrypte that is 16.8 MB
+    // (acast doesn't gzip) to use the first 210 KB, and too much to finish inside
+    // the 20 s timeout on cellular at all.
+    //
+    // `validators` from the previous check are sent back, so a feed that hasn't
+    // changed answers 304 with no body: .unchanged, and the caller reuses the page
+    // it already has. Empty ones ask for the whole page and still collect this
+    // response's validators for next time.
+    static func parseIfChanged(feedUrl: String, podcastTitle: String, validators: FeedValidators,
+                               limit: Int = pageSize, completion: @escaping (Check) -> Void) {
         load(feedUrl: feedUrl, podcastTitle: podcastTitle, limit: limit,
-             maxItems: limit + itemSlack) { eps, _ in
-            completion(eps)
+             maxItems: limit + itemSlack, validators: validators) { check, _ in
+            completion(check)
         }
     }
 
@@ -51,12 +64,16 @@ class FeedParser: NSObject, XMLParserDelegate {
     static func parseKeepingData(feedUrl: String, podcastTitle: String, limit: Int = pageSize,
                                  completion: @escaping ([Episode], Data?) -> Void) {
         load(feedUrl: feedUrl, podcastTitle: podcastTitle, limit: limit,
-             maxItems: 0, completion: completion)
+             maxItems: 0, validators: nil) { check, data in
+            if case .episodes(let eps, _) = check { completion(eps, data) } else { completion([], nil) }
+        }
     }
 
     // maxItems: stop the download after this many items; 0 = fetch it all.
+    // validators: nil = a plain request, otherwise a conditional one (see parseIfChanged).
     private static func load(feedUrl: String, podcastTitle: String, limit: Int, maxItems: Int,
-                             completion: @escaping ([Episode], Data?) -> Void) {
+                             validators: FeedValidators?,
+                             completion: @escaping (Check, Data?) -> Void) {
         // Use CurlFetcher (libcurl + OpenSSL) — handles GCM ciphers that NSURLConnection
         // (Apple Secure Transport) cannot negotiate on iOS 6.
         //
@@ -72,18 +89,21 @@ class FeedParser: NSObject, XMLParserDelegate {
         // request start, so a busy lane made it fire while the request was still
         // queued — reporting failure and then discarding the real response.
         // CURLOPT_TIMEOUT guarantees curl always calls back.
-        func finish(_ data: Data?) {
-            guard let data = data else { completion([], nil); return }
-            FeedParser.parseQueue.async {
-                let eps = FeedParser.runXML(data: data, podcastTitle: podcastTitle, limit: limit)
-                DispatchQueue.main.async { completion(eps, data) }
+        func finish(_ response: FeedResponse) {
+            switch response {
+            case .failed:      completion(.failed, nil)
+            case .notModified: completion(.unchanged, nil)
+            case .data(let data, let received):
+                FeedParser.parseQueue.async {
+                    let eps = FeedParser.runXML(data: data, podcastTitle: podcastTitle, limit: limit)
+                    DispatchQueue.main.async { completion(.episodes(eps, received), data) }
+                }
             }
         }
 
-        CurlFetcher.fetchFeed(url: feedUrl, maxItems: maxItems) { data in
-            if data != nil { finish(data); return }
-            guard let http = httpFallback else { finish(nil); return }
-            CurlFetcher.fetchFeed(url: http, maxItems: maxItems) { fallbackData in finish(fallbackData) }
+        CurlFetcher.fetchFeed(url: feedUrl, maxItems: maxItems, validators: validators) { response in
+            guard case .failed = response, let http = httpFallback else { finish(response); return }
+            CurlFetcher.fetchFeed(url: http, maxItems: maxItems, validators: validators) { finish($0) }
         }
     }
 
