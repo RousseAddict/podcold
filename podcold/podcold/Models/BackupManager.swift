@@ -31,9 +31,9 @@ struct BackupManager {
     static func export() -> ExportResult? {
         let ud = UserDefaults.standard
         let subscriptions = ud.array(forKey: Podcast.subscriptionsKey) as? [[String: Any]] ?? []
-        let recents       = ud.array(forKey: Episode.recentsKey)       as? [[String: Any]] ?? []
-        let downloads     = ud.array(forKey: Episode.downloadsKey)     as? [[String: Any]] ?? []
-        let queue         = ud.array(forKey: PlayQueue.storageKey)     as? [[String: Any]] ?? []
+        let recents       = Episode.recentsFile.read()   as? [[String: Any]] ?? []
+        let downloads     = Episode.downloadsFile.read() as? [[String: Any]] ?? []
+        let queue         = PlayQueue.file.read()        as? [[String: Any]] ?? []
         let played        = ud.stringArray(forKey: Episode.playedGuidsKey) ?? []
 
         // One pass over dictionaryRepresentation for both prefixes — it is a full
@@ -163,9 +163,9 @@ struct BackupManager {
         switch mode {
         case .replace:
             ud.set(backup.subscriptions, forKey: Podcast.subscriptionsKey)
-            ud.set(backup.recents,       forKey: Episode.recentsKey)
-            ud.set(backup.downloads,     forKey: Episode.downloadsKey)
-            ud.set(backup.queue,  forKey: PlayQueue.storageKey)
+            Episode.recentsFile.write(backup.recents)
+            Episode.downloadsFile.write(backup.downloads)
+            PlayQueue.file.write(backup.queue)
             ud.set(backup.played, forKey: Episode.playedGuidsKey)
             for key in ud.dictionaryRepresentation().keys
             where key.hasPrefix("pos_") || key.hasPrefix("dur_") {
@@ -183,29 +183,29 @@ struct BackupManager {
             }
             ud.set(mergedSubs, forKey: Podcast.subscriptionsKey)
 
-            let existingRec      = ud.array(forKey: Episode.recentsKey) as? [[String: Any]] ?? []
+            let existingRec      = Episode.recentsFile.read() as? [[String: Any]] ?? []
             let existingRecGuids = Set(existingRec.compactMap { $0["guid"] as? String })
             var mergedRec = existingRec
             for e in backup.recents {
                 if let g = e["guid"] as? String, !existingRecGuids.contains(g) { mergedRec.append(e) }
             }
-            ud.set(mergedRec, forKey: Episode.recentsKey)
+            Episode.recentsFile.write(mergedRec)
 
-            let existingDL      = ud.array(forKey: Episode.downloadsKey) as? [[String: Any]] ?? []
+            let existingDL      = Episode.downloadsFile.read() as? [[String: Any]] ?? []
             let existingDLGuids = Set(existingDL.compactMap { $0["guid"] as? String })
             var mergedDL = existingDL
             for e in backup.downloads {
                 if let g = e["guid"] as? String, !existingDLGuids.contains(g) { mergedDL.append(e) }
             }
-            ud.set(mergedDL, forKey: Episode.downloadsKey)
+            Episode.downloadsFile.write(mergedDL)
 
-            let existingQ      = ud.array(forKey: PlayQueue.storageKey) as? [[String: Any]] ?? []
+            let existingQ      = PlayQueue.file.read() as? [[String: Any]] ?? []
             let existingQGuids = Set(existingQ.compactMap { $0["guid"] as? String })
             var mergedQ = existingQ
             for e in backup.queue {
                 if let g = e["guid"] as? String, !existingQGuids.contains(g) { mergedQ.append(e) }
             }
-            ud.set(mergedQ, forKey: PlayQueue.storageKey)
+            PlayQueue.file.write(mergedQ)
 
             // Played is a set — union is the only sensible merge.
             var mergedPlayed = Set(ud.stringArray(forKey: Episode.playedGuidsKey) ?? [])

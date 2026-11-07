@@ -209,23 +209,25 @@ class Episode: NSObject {
 
     // MARK: - Recents
 
-    static let recentsKey = "recent_episodes"
+    // On disk rather than in UserDefaults, since each record carries the show notes
+    // (see PlistStore). Internal so BackupManager can export/import it.
+    static let recentsFile = PlistStore(key: "recent_episodes")
 
     static func loadRecents() -> [Episode] {
-        guard let arr = UserDefaults.standard.array(forKey: recentsKey) as? [[String: Any]] else { return [] }
+        guard let arr = recentsFile.read() as? [[String: Any]] else { return [] }
         return arr.map { Episode.from(dict: $0) }
     }
 
     static func saveRecents(_ episodes: [Episode]) {
-        UserDefaults.standard.set(episodes.map { $0.toDict() }, forKey: recentsKey)
+        recentsFile.write(episodes.map { $0.toDict() })
     }
 
     // MARK: - Downloads
 
-    static let downloadsKey = "downloaded_episodes"
+    static let downloadsFile = PlistStore(key: "downloaded_episodes")
 
     static func loadDownloads() -> [Episode] {
-        guard let arr = UserDefaults.standard.array(forKey: downloadsKey) as? [[String: Any]] else { return [] }
+        guard let arr = downloadsFile.read() as? [[String: Any]] else { return [] }
         return arr.map { Episode.from(dict: $0) }.filter { $0.localPath() != nil }
     }
 
@@ -233,13 +235,13 @@ class Episode: NSObject {
         var list = loadAllDownloadRecords()
         list.removeAll { $0.guid == episode.guid }
         list.insert(episode, at: 0)
-        UserDefaults.standard.set(list.map { $0.toDict() }, forKey: downloadsKey)
+        downloadsFile.write(list.map { $0.toDict() })
     }
 
     static func removeFromDownloads(guid: String) {
         var list = loadAllDownloadRecords()
         list.removeAll { $0.guid == guid }
-        UserDefaults.standard.set(list.map { $0.toDict() }, forKey: downloadsKey)
+        downloadsFile.write(list.map { $0.toDict() })
     }
 
     // MARK: - Auto-delete finished downloads
@@ -267,7 +269,7 @@ class Episode: NSObject {
 
     // Raw load without file existence check (used internally)
     private static func loadAllDownloadRecords() -> [Episode] {
-        guard let arr = UserDefaults.standard.array(forKey: downloadsKey) as? [[String: Any]] else { return [] }
+        guard let arr = downloadsFile.read() as? [[String: Any]] else { return [] }
         return arr.map { Episode.from(dict: $0) }
     }
 }

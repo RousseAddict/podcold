@@ -5,30 +5,29 @@ import Foundation
 // The episode actually playing is NOT in here — AudioPlayer owns that — so the
 // queue always reads as "up next" with no special-casing of row 0.
 //
-// Stored in UserDefaults next to recents. A queue is a handful of episodes, so
-// the whole-plist rewrite UserDefaults performs on every change is affordable
-// here in a way it is not for a 20-episode feed cache (which is why
-// EpisodeListCache uses one plist per feed under Caches instead).
+// Stored in its own file next to recents (see PlistStore), not in UserDefaults:
+// each queued episode carries its show notes, and UserDefaults rewrote all of
+// them with every 5-s position save.
 class PlayQueue {
     static let shared = PlayQueue()
     private init() { episodes = PlayQueue.load() }
 
-    // Internal so BackupManager can export/import it by key.
-    static let storageKey = "play_queue"
+    // Internal so BackupManager can export/import it.
+    static let file = PlistStore(key: "play_queue")
 
     private(set) var episodes: [Episode]
 
     private static func load() -> [Episode] {
-        guard let arr = UserDefaults.standard.array(forKey: storageKey) as? [[String: Any]] else { return [] }
+        guard let arr = file.read() as? [[String: Any]] else { return [] }
         return arr.map { Episode.from(dict: $0) }
     }
 
     // The singleton caches `episodes` in memory, so anything that writes the
-    // UserDefaults key directly (BackupManager import) must tell it to re-read.
+    // file directly (BackupManager import) must tell it to re-read.
     func reload() { episodes = PlayQueue.load() }
 
     private func save() {
-        UserDefaults.standard.set(episodes.map { $0.toDict() }, forKey: PlayQueue.storageKey)
+        PlayQueue.file.write(episodes.map { $0.toDict() })
     }
 
     func contains(guid: String) -> Bool {

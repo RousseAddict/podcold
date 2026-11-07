@@ -5,15 +5,16 @@ import Foundation
 // swim lane instantly (no network wait), while UpNextManager refreshes stale entries
 // one feed at a time in the background.
 class LatestEpisodeCache {
-    private static let key = "latest_episode_cache"
+    // Each entry carries its episode's show notes, so it lives on disk (see PlistStore).
+    private static let file = PlistStore(key: "latest_episode_cache")
     private static let staleInterval: TimeInterval = 45 * 60
     private static let failureRetryInterval: TimeInterval = 5 * 60
 
     private static func loadRaw() -> [String: [String: Any]] {
-        return UserDefaults.standard.dictionary(forKey: key) as? [String: [String: Any]] ?? [:]
+        return file.read() as? [String: [String: Any]] ?? [:]
     }
 
-    // Every entry from a single UserDefaults read. HomeVC looks up each subscription on
+    // Every entry from a single read. HomeVC looks up each subscription on
     // every appearance, and reading per lookup decoded the whole dict — every cached
     // episode, show notes included — twice per subscription.
     struct Snapshot {
@@ -64,7 +65,7 @@ class LatestEpisodeCache {
         if !validators.etag.isEmpty         { entry["etag"] = validators.etag }
         if !validators.lastModified.isEmpty { entry["lastModified"] = validators.lastModified }
         raw[feedUrl] = entry
-        UserDefaults.standard.set(raw, forKey: key)
+        file.write(raw)
     }
 
     // A failed check says nothing about the feed, so it must not overwrite what the
@@ -78,19 +79,19 @@ class LatestEpisodeCache {
         var entry = raw[feedUrl] ?? [:]
         entry["checkedAt"] = Date().timeIntervalSince1970 - staleInterval + failureRetryInterval
         raw[feedUrl] = entry
-        UserDefaults.standard.set(raw, forKey: key)
+        file.write(raw)
     }
 
     // Forces every feed to be re-checked on the next refresh. Needed when the rule that
     // decides *which* episode qualifies changes — the stored entry is one already-chosen
     // episode, so nothing short of a re-parse can re-apply a new rule to it.
     static func clear() {
-        UserDefaults.standard.removeObject(forKey: key)
+        file.write(nil)
     }
 
     static func remove(feedUrl: String) {
         var raw = loadRaw()
         raw.removeValue(forKey: feedUrl)
-        UserDefaults.standard.set(raw, forKey: key)
+        file.write(raw)
     }
 }

@@ -29,13 +29,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     // Being backgrounded is the last reliable moment before the OS can kill the app
     // outright, and willTerminate covers a user swipe-kill. Without these, the 5-s
-    // write throttle loses whatever was played since the last tick.
+    // write throttle loses whatever was played since the last tick, and an episode
+    // list change still queued for disk (PlistStore) is lost with the process.
     func applicationDidEnterBackground(_ application: UIApplication) {
         AudioPlayer.shared.flushPosition()
+        PlistStore.waitForWrites()
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
         AudioPlayer.shared.flushPosition()
+        PlistStore.waitForWrites()
     }
 
     // MARK: - Remote control events (lock screen / headphone controls, iOS 6+)

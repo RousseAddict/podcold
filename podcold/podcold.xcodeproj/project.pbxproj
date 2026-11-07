@@ -47,6 +47,7 @@
 		BB000001000000000000BB16 /* BackupManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupManager.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB20 /* LatestEpisodeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatestEpisodeCache.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB21 /* UpNextManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpNextManager.swift; sourceTree = "<group>"; };
+		BB000001000000000000BB25 /* PlistStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlistStore.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB22 /* EpisodeListCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeListCache.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB23 /* PlayQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayQueue.swift; sourceTree = "<group>"; };
 		BB000001000000000000BB17 /* SettingsVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsVC.swift; sourceTree = "<group>"; };
@@ -54,6 +55,7 @@
 		BB000001000000000000BC16 /* BackupManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB16 /* BackupManager.swift */; };
 		BB000001000000000000BC20 /* LatestEpisodeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB20 /* LatestEpisodeCache.swift */; };
 		BB000001000000000000BC21 /* UpNextManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB21 /* UpNextManager.swift */; };
+		BB000001000000000000BC25 /* PlistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB25 /* PlistStore.swift */; };
 		BB000001000000000000BC22 /* EpisodeListCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB22 /* EpisodeListCache.swift */; };
 		BB000001000000000000BC23 /* PlayQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB23 /* PlayQueue.swift */; };
 		BB000001000000000000BC17 /* SettingsVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB17 /* SettingsVC.swift */; };
@@ -229,6 +231,7 @@
 				BB000001000000000000BB16 /* BackupManager.swift */,
 				BB000001000000000000BB20 /* LatestEpisodeCache.swift */,
 				BB000001000000000000BB21 /* UpNextManager.swift */,
+				BB000001000000000000BB25 /* PlistStore.swift */,
 				BB000001000000000000BB22 /* EpisodeListCache.swift */,
 				BB000001000000000000BB23 /* PlayQueue.swift */,
 			);
@@ -436,6 +439,7 @@
 				BB000001000000000000BC16 /* BackupManager.swift in Sources */,
 				BB000001000000000000BC20 /* LatestEpisodeCache.swift in Sources */,
 				BB000001000000000000BC21 /* UpNextManager.swift in Sources */,
+				BB000001000000000000BC25 /* PlistStore.swift in Sources */,
 				BB000001000000000000BC22 /* EpisodeListCache.swift in Sources */,
 				BB000001000000000000BC23 /* PlayQueue.swift in Sources */,
 				BB000001000000000000BC17 /* SettingsVC.swift in Sources */,
