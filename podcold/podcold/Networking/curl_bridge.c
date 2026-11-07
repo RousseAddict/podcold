@@ -1,5 +1,4 @@
 #include "curl_bridge.h"
-#include <stdio.h>
 #include <curl/curl.h>
 
 void curl_bridge_global_init(void) {
@@ -66,26 +65,26 @@ void curl_bridge_set_header_fn(CurlHandle h, CurlBridgeWriteFn fn, void *userdat
     curl_easy_setopt(h, CURLOPT_HEADERDATA, userdata);
 }
 
-/* Only stored values are sent back, verbatim — HTTP compares them as opaque
-   strings, so there is no date parsing. curl_easy_reset clears the option but
-   never frees the list, hence handing it back to the caller. */
-void *curl_bridge_set_validators(CurlHandle h, const char *etag, const char *last_modified) {
-    struct curl_slist *list = NULL, *next;
-    char line[1024];
-    if (etag && *etag) {
-        snprintf(line, sizeof line, "If-None-Match: %s", etag);
-        if ((next = curl_slist_append(list, line))) list = next;
-    }
-    if (last_modified && *last_modified) {
-        snprintf(line, sizeof line, "If-Modified-Since: %s", last_modified);
-        if ((next = curl_slist_append(list, line))) list = next;
-    }
-    if (list) curl_easy_setopt(h, CURLOPT_HTTPHEADER, list);
-    return list;
+/* curl_easy_reset clears CURLOPT_HTTPHEADER but never frees the list, hence
+   handing it back to the caller to free once the transfer is over. */
+void *curl_bridge_append_header(void *list, const char *line) {
+    struct curl_slist *next = curl_slist_append((struct curl_slist *)list, line);
+    return next ? next : list;   /* out of memory: drop this line, keep the rest */
+}
+
+void curl_bridge_set_headers(CurlHandle h, void *list) {
+    curl_easy_setopt(h, CURLOPT_HTTPHEADER, (struct curl_slist *)list);
 }
 
 void curl_bridge_free_headers(void *list) {
     curl_slist_free_all((struct curl_slist *)list);   /* NULL is fine */
+}
+
+/* CURLOPT_RANGE, not RESUME_FROM: resuming fails the whole transfer when the
+   server ignores the range, where this simply delivers the full document —
+   which FeedPager treats as a fresh start. */
+void curl_bridge_set_range(CurlHandle h, const char *range) {
+    curl_easy_setopt(h, CURLOPT_RANGE, range);
 }
 
 void curl_bridge_set_progress_fn(CurlHandle h, CurlBridgeProgressFn fn, void *clientp) {

@@ -13,14 +13,15 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
     private var emptyLabel: UILabel!
     private var retryBtn: UIButton!
 
-    // Load-more state. A feed has no server-side paging, so paging deeper means
-    // re-parsing the same bytes with a higher cap — kept here so it costs no
-    // network. Dropped above the size cap so a 2000-episode feed can't sit in RAM.
-    private static let maxRetainedFeedBytes = 6 * 1024 * 1024
-    private var feedData: Data?
+    // Load-more state. The pager holds the feed's bytes as far as the pages shown
+    // so far, and fetches the next stretch with a byte range when asked for more.
+    private let pager: FeedPager
     private var loadedLimit = FeedParser.pageSize
     private var hasMore = false
     private var isLoadingMore = false
+    // A failed load-more keeps `hasMore` — the episodes are still out there — but
+    // stops the scroll trigger from re-firing at a dead link until the footer is tapped.
+    private var loadMoreFailed = false
     // Until the first feed response lands we cannot know whether there is more.
     // That response queues behind UpNextManager's batch on the serial feed lane,
     // so it can be slow — the footer has to say "working" rather than show
@@ -30,7 +31,11 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
     private var footerLabel: UILabel!
     private var footerSpinner: UIActivityIndicatorView!
 
-    init(podcast: Podcast) { self.podcast = podcast; super.init(nibName: nil, bundle: nil) }
+    init(podcast: Podcast) {
+        self.podcast = podcast
+        pager = FeedPager(feedUrl: podcast.feedUrl, podcastTitle: podcast.title)
+        super.init(nibName: nil, bundle: nil)
+    }
     required init?(coder: NSCoder) { fatalError() }
 
     override func viewDidLoad() {
@@ -216,8 +221,8 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         }
     }
 
-    // The feed is paged locally by re-parsing with a higher cap, so until the
-    // parser runs out the count on screen is a floor, not a total.
+    // The feed is paged a stretch at a time, so until it runs out the count on
+    // screen is a floor, not a total.
     private func updateSectionTitle() {
         sectionLabel.text = hasMore
             ? "EPISODES · \(episodes.count)+"
@@ -236,22 +241,18 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         // waiting on — gets the feed lane next instead of after every subscription.
         UpNextManager.shared.suspend()
 
-        FeedParser.parseKeepingData(feedUrl: podcast.feedUrl,
-                                    podcastTitle: podcast.title,
-                                    limit: FeedParser.pageSize) { [weak self] eps, data in
+        pager.load(limit: FeedParser.pageSize) { [weak self] eps, more in
             // Before the weak-self guard: the batch must restart even if this
             // screen was popped mid-request.
             UpNextManager.shared.resume()
             guard let self = self else { return }
             self.initialLoadInFlight = false
             self.spinner.stopAnimating()
-            self.retainFeedData(data)
 
-            if !eps.isEmpty {
+            if let eps = eps {
                 self.episodes = eps
                 self.loadedLimit = FeedParser.pageSize
-                // A full page means the parser stopped early, so there is more.
-                self.hasMore = eps.count >= FeedParser.pageSize
+                self.hasMore = more
                 self.updateSectionTitle()
                 self.tableView.reloadData()
                 self.updateFooter()
@@ -280,53 +281,36 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
 
     // MARK: — Load more
 
-    private func retainFeedData(_ data: Data?) {
-        guard let data = data, data.count <= EpisodeListVC.maxRetainedFeedBytes else {
-            feedData = nil
-            return
-        }
-        feedData = data
-    }
-
     @objc private func loadMoreTapped() { loadMore() }
 
     private func loadMore() {
         guard hasMore, !isLoadingMore else { return }
         isLoadingMore = true
+        loadMoreFailed = false
         updateFooter()
 
         let next = loadedLimit + FeedParser.pageSize
-
-        // A deeper parse re-reads from the top, so it is a superset of what we
-        // already show. Not growing means the feed ran out before `next`.
-        let apply: ([Episode]) -> Void = { [weak self] eps in
+        // Usually a network request now — the next stretch of the feed — so take
+        // the lane off the background batch, as load() does.
+        UpNextManager.shared.suspend()
+        pager.load(limit: next) { [weak self] eps, more in
+            UpNextManager.shared.resume()
             guard let self = self else { return }
             self.isLoadingMore = false
-            if eps.count > self.episodes.count {
-                self.episodes = eps
+            if let eps = eps {
+                // A deeper parse re-reads from the top, so it is a superset of what
+                // is already shown.
+                if eps.count > self.episodes.count {
+                    self.episodes = eps
+                    self.tableView.reloadData()
+                }
                 self.loadedLimit = next
-                self.hasMore = eps.count >= next
-                self.tableView.reloadData()
+                self.hasMore = more
             } else {
-                self.hasMore = false
+                self.loadMoreFailed = true
             }
             self.updateSectionTitle()
             self.updateFooter()
-        }
-
-        if let data = feedData {
-            FeedParser.parse(data: data, podcastTitle: podcast.title, limit: next, completion: apply)
-        } else {
-            // Feed was too big to keep in memory — pay for a re-fetch instead,
-            // and take the lane off the background batch for the same reason.
-            UpNextManager.shared.suspend()
-            FeedParser.parseKeepingData(feedUrl: podcast.feedUrl,
-                                        podcastTitle: podcast.title,
-                                        limit: next) { [weak self] eps, data in
-                UpNextManager.shared.resume()
-                self?.retainFeedData(data)
-                apply(eps)
-            }
         }
     }
 
@@ -343,6 +327,9 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
         if isLoadingMore || initialLoadInFlight {
             footerLabel.text = "Loading older episodes…"
             footerSpinner.startAnimating()
+        } else if loadMoreFailed {
+            footerLabel.text = "Couldn't load · Tap to retry"
+            footerSpinner.stopAnimating()
         } else {
             footerLabel.text = "Load older episodes"
             footerSpinner.stopAnimating()
@@ -408,7 +395,7 @@ class EpisodeListVC: UIViewController, UITableViewDataSource, UITableViewDelegat
     func scrollViewDidScroll(_ scrollView: UIScrollView) { maybeLoadMore() }
 
     private func maybeLoadMore() {
-        guard hasMore, !isLoadingMore, tableView.bounds.height > 0 else { return }
+        guard hasMore, !isLoadingMore, !loadMoreFailed, tableView.bounds.height > 0 else { return }
         let remaining = tableView.contentSize.height
             - tableView.contentOffset.y
             - tableView.bounds.height

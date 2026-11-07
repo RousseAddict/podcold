@@ -33,11 +33,14 @@ void        curl_bridge_set_accept_encoding(CurlHandle h);
 void        curl_bridge_set_write_fn(CurlHandle h, CurlBridgeWriteFn fn, void *userdata);
 /* Response headers, one line per call — same shape as the write callback. */
 void        curl_bridge_set_header_fn(CurlHandle h, CurlBridgeWriteFn fn, void *userdata);
-/* Conditional GET: sends If-None-Match / If-Modified-Since for whichever value is
-   non-empty. Returns the header list (NULL when both are empty), which must stay
-   alive until curl_bridge_perform returns and then go to curl_bridge_free_headers. */
-void       *curl_bridge_set_validators(CurlHandle h, const char *etag, const char *last_modified);
+/* Extra request headers ("If-None-Match: …"). Build the list with append (NULL to
+   start), hand it over with set_headers; it must stay alive until
+   curl_bridge_perform returns and then go to curl_bridge_free_headers. */
+void       *curl_bridge_append_header(void *list, const char *line);
+void        curl_bridge_set_headers(CurlHandle h, void *list);
 void        curl_bridge_free_headers(void *list);
+/* Byte range, e.g. "215000-". A server that ignores it sends the whole document. */
+void        curl_bridge_set_range(CurlHandle h, const char *range);
 void        curl_bridge_set_progress_fn(CurlHandle h, CurlBridgeProgressFn fn, void *clientp);
 int         curl_bridge_perform(CurlHandle h);
 long        curl_bridge_response_code(CurlHandle h);

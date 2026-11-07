@@ -17,7 +17,7 @@ private let curlDataWriteCallback: @convention(c) (UnsafeRawPointer?, Int, Int, 
     return bytes
 }
 
-// Header callback for conditional feed requests — one response header line per call.
+// Header callback for feed requests — one response header line per call.
 private let curlHeaderCallback: @convention(c) (UnsafeRawPointer?, Int, Int, UnsafeMutableRawPointer?) -> Int = { ptr, size, nmemb, userdata in
     let bytes = size * nmemb
     guard let ptr = ptr, let userdata = userdata else { return bytes }
@@ -54,10 +54,43 @@ private let curlProgressCallback: @convention(c) (UnsafeMutableRawPointer?, Int6
 struct FeedValidators {
     var etag = ""
     var lastModified = ""
+
+    // What If-Range accepts: a strong ETag or a date — never a weak ETag.
+    var ifRange: String {
+        if !etag.isEmpty && !etag.hasPrefix("W/") { return etag }
+        return lastModified
+    }
+}
+
+// MARK: - Feed requests
+
+struct FeedRequest {
+    var maxItems = 0                        // stop after this many items; 0 = all
+    var validators: FeedValidators? = nil   // conditional GET (New Episodes batch)
+    var resume: FeedResume? = nil           // byte-range continuation (FeedPager)
+}
+
+// Carry on from `offset`, where the caller's bytes end. `itemsHeld` closing item
+// tags are already in those bytes, so maxItems still counts from the top of the
+// document. If-Range makes a feed that changed since answer from the top instead.
+struct FeedResume {
+    var offset: Int
+    var ifRange: String
+    var itemsHeld: Int
+}
+
+struct FeedInfo {
+    var validators = FeedValidators()
+    var partial = false     // 206: the bytes continue from FeedResume.offset
+    var truncated = false   // stopped at maxItems; the document goes on
+    var itemEnds = 0        // closing item tags from the top of the document to here
+    // Content-Encoding other than identity: the bytes were decoded on arrival, so
+    // their offsets no longer match the server's and a range can't continue them.
+    var encoded = false
 }
 
 enum FeedResponse {
-    case data(Data, FeedValidators)
+    case data(Data, FeedInfo)
     case notModified
     case failed
 }
@@ -72,27 +105,49 @@ enum FeedResponse {
 private final class CurlDataBox {
     let buf = NSMutableData()
     var itemLimit = 0          // 0 = no limit
+    var itemBase = 0           // item ends already held by the caller (FeedResume)
     var reachedLimit = false
     var validators = FeedValidators()
+    var encoded = false
+    var rangeStart = -1        // from Content-Range; -1 = none
 
-    // Keeps ETag and Last-Modified. A redirect delivers one header block per hop, each
+    // Reads what FeedInfo reports. A redirect delivers one header block per hop, each
     // opening with a status line, so that line clears what an earlier hop sent — only
     // the final response's values count.
     func readHeader(_ ptr: UnsafeRawPointer, length: Int) {
         let line = String(decoding: UnsafeRawBufferPointer(start: ptr, count: length), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if line.hasPrefix("HTTP/") { validators = FeedValidators(); return }
+        if line.hasPrefix("HTTP/") {
+            // "HTTP/1.1 206 Partial Content", "HTTP/2 200"
+            let fields = line.split(separator: " ")
+            let status = fields.count > 1 ? Int(fields[1]) ?? 0 : 0
+            validators = FeedValidators()
+            encoded = false
+            rangeStart = -1
+            // A 206 continues the caller's bytes, so the count carries on from theirs;
+            // anything else is the document from the top. The status line arrives
+            // before any body, so the write callback's limit check counts right.
+            itemEnds = status == 206 ? itemBase : 0
+            return
+        }
         guard let colon = line.firstIndex(of: ":") else { return }
         let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         switch line[..<colon].lowercased() {
         case "etag":          validators.etag = value
         case "last-modified": validators.lastModified = value
+        case "content-encoding":
+            let v = value.lowercased()
+            encoded = !v.isEmpty && v != "identity"
+        case "content-range":
+            // "bytes 210000-260000/16761194"
+            let spec = value.lowercased().hasPrefix("bytes ") ? value.dropFirst(6) : ""
+            rangeStart = Int(spec.prefix { $0 != "-" }) ?? -1
         default:              break
         }
     }
 
     private static let endTags: [[UInt8]] = [Array("</item>".utf8), Array("</entry>".utf8)]
-    private var itemEnds = 0
+    private(set) var itemEnds = 0
     // Per tag: where the next search starts. Every match starting before it has
     // been counted, so a tag split across two chunks is found exactly once.
     private var searchFrom = [0, 0]
@@ -172,35 +227,31 @@ class CurlFetcher {
     // Artwork and other small images. Separate lane so a feed refresh batch or an
     // episode download can never delay the images the user is looking at.
     static func fetchImage(url: String, timeout: Int = 15, completion: @escaping (Data?) -> Void) {
-        fetch(url: url, timeout: timeout, lane: imageLane, gzip: false, maxItems: 0,
-              validators: nil) { response in
+        fetch(url: url, timeout: timeout, lane: imageLane, gzip: false, feed: nil) { response in
             if case .data(let data, _) = response { completion(data) } else { completion(nil) }
         }
     }
 
-    // RSS/Atom feeds — gzip enabled, these are highly compressible XML.
-    // maxItems > 0 stops the transfer after that many items (see CurlDataBox).
-    // validators != nil makes it a conditional request: whatever it holds is sent
-    // back, and this response's own validators come back with the data.
-    static func fetchFeed(url: String, timeout: Int = 20, maxItems: Int = 0,
-                          validators: FeedValidators? = nil,
+    // RSS/Atom feeds — gzip enabled, these are highly compressible XML. Except for a
+    // range continuation: offsets into gzipped bytes would mean nothing to us.
+    static func fetchFeed(url: String, timeout: Int = 20, request: FeedRequest,
                           completion: @escaping (FeedResponse) -> Void) {
-        fetch(url: url, timeout: timeout, lane: feedLane, gzip: true, maxItems: maxItems,
-              validators: validators, completion: completion)
+        fetch(url: url, timeout: timeout, lane: feedLane, gzip: request.resume == nil,
+              feed: request, completion: completion)
     }
 
+    // feed == nil: a plain fetch (images) — no item counting, no header parsing.
     private static func fetch(url: String,
                               timeout: Int,
                               lane: CurlLane,
                               gzip: Bool,
-                              maxItems: Int,
-                              validators: FeedValidators?,
+                              feed: FeedRequest?,
                               completion: @escaping (FeedResponse) -> Void) {
         let fetcher = CurlFetcher()
         retain(fetcher)
         lane.queue.async {
             let response = fetcher.syncFetchData(url: url, timeout: timeout, lane: lane, gzip: gzip,
-                                                 maxItems: maxItems, validators: validators)
+                                                 feed: feed)
             DispatchQueue.main.async {
                 release(fetcher)
                 completion(response)
@@ -240,13 +291,12 @@ class CurlFetcher {
 
     // MARK: - Synchronous implementations (run on background thread)
 
-    private func syncFetchData(url: String, timeout: Int, lane: CurlLane, gzip: Bool, maxItems: Int,
-                               validators: FeedValidators?) -> FeedResponse {
+    private func syncFetchData(url: String, timeout: Int, lane: CurlLane, gzip: Bool,
+                               feed: FeedRequest?) -> FeedResponse {
         _ = CurlFetcher.curlGlobalInit  // ensures curl_global_init ran once before any easy_init
         guard let h = lane.borrowHandle() else { return .failed }
 
         let box = CurlDataBox()
-        box.itemLimit = maxItems
         let ptr = Unmanaged.passUnretained(box).toOpaque()
 
         url.withCString { curl_bridge_set_url(h, $0) }
@@ -258,17 +308,27 @@ class CurlFetcher {
         if gzip { curl_bridge_set_accept_encoding(h) }
         curl_bridge_set_write_fn(h, curlDataWriteCallback, ptr)
 
-        // The list must outlive the transfer, so it is freed on the way out; the
-        // option still pointing at it is cleared by the next borrowHandle() reset.
-        var headerList: UnsafeMutableRawPointer?
-        if let v = validators {
-            headerList = v.etag.withCString { etag in
-                v.lastModified.withCString { lastModified in
-                    curl_bridge_set_validators(h, etag, lastModified)
-                }
+        var lines: [String] = []
+        if let feed = feed {
+            box.itemLimit = feed.maxItems
+            if let v = feed.validators {
+                if !v.etag.isEmpty         { lines.append("If-None-Match: \(v.etag)") }
+                if !v.lastModified.isEmpty { lines.append("If-Modified-Since: \(v.lastModified)") }
+            }
+            if let r = feed.resume {
+                box.itemBase = r.itemsHeld
+                "\(r.offset)-".withCString { curl_bridge_set_range(h, $0) }
+                lines.append("If-Range: \(r.ifRange)")
             }
             curl_bridge_set_header_fn(h, curlHeaderCallback, ptr)
         }
+        // The list must outlive the transfer, so it is freed on the way out; the
+        // option still pointing at it is cleared by the next borrowHandle() reset.
+        var headerList: UnsafeMutableRawPointer?
+        for line in lines {
+            headerList = line.withCString { curl_bridge_append_header(headerList, $0) }
+        }
+        if headerList != nil { curl_bridge_set_headers(h, headerList) }
         defer { curl_bridge_free_headers(headerList) }
 
         let rc = curl_bridge_perform(h)
@@ -279,9 +339,19 @@ class CurlFetcher {
         // multi-megabyte feed.
         guard rc == 0 || box.reachedLimit else { return .failed }
         let httpCode = curl_bridge_response_code(h)
-        if httpCode == 304 && validators != nil { return .notModified }
-        guard httpCode == 200 else { return .failed }
-        return .data(box.buf as Data, box.validators)
+        if httpCode == 304 && feed?.validators != nil { return .notModified }
+
+        var info = FeedInfo(validators: box.validators, partial: false, truncated: box.reachedLimit,
+                            itemEnds: feed == nil ? 0 : box.countItemEnds(), encoded: box.encoded)
+        if httpCode == 206, let r = feed?.resume {
+            // Only a continuation from exactly where the caller's bytes end, in the
+            // same encoding, can be appended to them.
+            guard box.rangeStart == r.offset, !box.encoded else { return .failed }
+            info.partial = true
+        } else if httpCode != 200 {
+            return .failed
+        }
+        return .data(box.buf as Data, info)
     }
 
     private func syncDownload(url: String, outputPath: String, progress: ((Float) -> Void)?) -> Bool {
