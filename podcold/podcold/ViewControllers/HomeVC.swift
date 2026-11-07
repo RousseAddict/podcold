@@ -29,11 +29,15 @@ class HomeVC: UIViewController {
         super.viewDidLoad()
         title = "podcold"
         view.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.14, alpha: 1)
-        let searchBtn   = UIBarButtonItem(barButtonSystemItem: .search, target: self, action: #selector(openSearch))
+        // Phosphor icons throughout (magnifying-glass, gear, download-simple), so the bar
+        // matches. Image-only items have no title, so VoiceOver needs the label instead.
+        let searchBtn   = UIBarButtonItem(image: UIImage(named: "search-icon"), style: .plain, target: self, action: #selector(openSearch))
+        searchBtn.accessibilityLabel = "Search"
         let settingsBtn = UIBarButtonItem(image: UIImage(named: "gear-icon"), style: .plain, target: self, action: #selector(openSettings))
         navigationItem.rightBarButtonItems = [searchBtn, settingsBtn]
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: "Downloads", style: .plain, target: self, action: #selector(openDownloads))
+        let downloadsBtn = UIBarButtonItem(image: UIImage(named: "downloads-icon"), style: .plain, target: self, action: #selector(openDownloads))
+        downloadsBtn.accessibilityLabel = "Downloads"
+        navigationItem.leftBarButtonItem = downloadsBtn
         scrollView = UIScrollView(frame: view.bounds)
         scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(scrollView)

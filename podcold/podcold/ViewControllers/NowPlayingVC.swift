@@ -389,43 +389,13 @@ class NowPlayingVC: UIViewController, UITableViewDataSource, UITableViewDelegate
         })
     }
 
-    // Shows where a tap goes: the list glyph in full mode, the player glyph in list mode
+    // Shows where a tap goes: Phosphor "queue" in full mode (the list is Up Next),
+    // "monitor-play" in list mode. Bar items read only the alpha channel (iOS 6
+    // embosses it, iOS 7 tints it), so the PNGs' white fill is moot.
     private func updateModeButton() {
-        let icon = mode == .full ? NowPlayingVC.listIcon : NowPlayingVC.playerIcon
+        let icon = UIImage(named: mode == .full ? "queue-icon" : "player-icon")
         navigationItem.rightBarButtonItem = UIBarButtonItem(image: icon, style: .plain,
                                                             target: self, action: #selector(modeTapped))
-    }
-
-    // Drawn in code: no PNG pair and no pbxproj entries. Bar items read only the
-    // alpha channel (iOS 6 embosses it, iOS 7 tints it), so the fill colour is moot.
-    private static let listIcon = NowPlayingVC.drawIcon {
-        for i in 0..<3 {
-            let y = 3.5 + CGFloat(i) * 5.5
-            UIBezierPath(rect: CGRect(x: 1.5, y: y, width: 3, height: 3)).fill()
-            UIBezierPath(rect: CGRect(x: 7, y: y + 0.5, width: 11.5, height: 2)).fill()
-        }
-    }
-
-    private static let playerIcon = NowPlayingVC.drawIcon {
-        let frame = UIBezierPath(roundedRect: CGRect(x: 2.5, y: 2.5, width: 15, height: 15), cornerRadius: 3)
-        frame.lineWidth = 2
-        frame.stroke()
-        let play = UIBezierPath()
-        play.move(to: CGPoint(x: 8, y: 6.5))
-        play.addLine(to: CGPoint(x: 14, y: 10))
-        play.addLine(to: CGPoint(x: 8, y: 13.5))
-        play.close()
-        play.fill()
-    }
-
-    private static func drawIcon(_ draw: () -> Void) -> UIImage {
-        UIGraphicsBeginImageContextWithOptions(CGSize(width: 20, height: 20), false, UIScreen.main.scale)
-        UIColor.white.setFill()
-        UIColor.white.setStroke()
-        draw()
-        let image = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        return image ?? UIImage()
     }
 
     private func refreshFromCurrentEpisode() {

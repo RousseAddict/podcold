@@ -18,6 +18,14 @@
 		BB000001000000000000BC1D /* pause@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB1D /* pause@2x.png */; };
 		BB000001000000000000BC1E /* close.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB1E /* close.png */; };
 		BB000001000000000000BC1F /* close@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB1F /* close@2x.png */; };
+		BB000001000000000000BC26 /* queue-icon.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB26 /* queue-icon.png */; };
+		BB000001000000000000BC27 /* queue-icon@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB27 /* queue-icon@2x.png */; };
+		BB000001000000000000BC28 /* player-icon.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB28 /* player-icon.png */; };
+		BB000001000000000000BC29 /* player-icon@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB29 /* player-icon@2x.png */; };
+		BB000001000000000000BC2A /* downloads-icon.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB2A /* downloads-icon.png */; };
+		BB000001000000000000BC2B /* downloads-icon@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB2B /* downloads-icon@2x.png */; };
+		BB000001000000000000BC2C /* search-icon.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB2C /* search-icon.png */; };
+		BB000001000000000000BC2D /* search-icon@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000BB2D /* search-icon@2x.png */; };
 		A34362E22FD764250064ADE1 /* podcoldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34362E12FD764250064ADE1 /* podcoldTests.swift */; };
 		A34362EC2FD764250064ADE1 /* podcoldUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34362EB2FD764250064ADE1 /* podcoldUITests.swift */; };
 		A34362EE2FD764250064ADE1 /* podcoldUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34362ED2FD764250064ADE1 /* podcoldUITestsLaunchTests.swift */; };
@@ -91,6 +99,14 @@
 		BB000001000000000000BB1D /* pause@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "pause@2x.png"; sourceTree = "<group>"; };
 		BB000001000000000000BB1E /* close.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "close.png"; sourceTree = "<group>"; };
 		BB000001000000000000BB1F /* close@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "close@2x.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB26 /* queue-icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "queue-icon.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB27 /* queue-icon@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "queue-icon@2x.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB28 /* player-icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "player-icon.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB29 /* player-icon@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "player-icon@2x.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB2A /* downloads-icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "downloads-icon.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB2B /* downloads-icon@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "downloads-icon@2x.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB2C /* search-icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "search-icon.png"; sourceTree = "<group>"; };
+		BB000001000000000000BB2D /* search-icon@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "search-icon@2x.png"; sourceTree = "<group>"; };
 		A34362D72FD764250064ADE1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A34362DD2FD764250064ADE1 /* podcoldTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = podcoldTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A34362E12FD764250064ADE1 /* podcoldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = podcoldTests.swift; sourceTree = "<group>"; };
@@ -184,6 +200,14 @@
 				BB000001000000000000BB1D /* pause@2x.png */,
 				BB000001000000000000BB1E /* close.png */,
 				BB000001000000000000BB1F /* close@2x.png */,
+				BB000001000000000000BB26 /* queue-icon.png */,
+				BB000001000000000000BB27 /* queue-icon@2x.png */,
+				BB000001000000000000BB28 /* player-icon.png */,
+				BB000001000000000000BB29 /* player-icon@2x.png */,
+				BB000001000000000000BB2A /* downloads-icon.png */,
+				BB000001000000000000BB2B /* downloads-icon@2x.png */,
+				BB000001000000000000BB2C /* search-icon.png */,
+				BB000001000000000000BB2D /* search-icon@2x.png */,
 				A34362D72FD764250064ADE1 /* Assets.xcassets */,
 			);
 			path = podcold;
@@ -390,6 +414,14 @@
 				BB000001000000000000BC1D /* pause@2x.png in Resources */,
 				BB000001000000000000BC1E /* close.png in Resources */,
 				BB000001000000000000BC1F /* close@2x.png in Resources */,
+				BB000001000000000000BC26 /* queue-icon.png in Resources */,
+				BB000001000000000000BC27 /* queue-icon@2x.png in Resources */,
+				BB000001000000000000BC28 /* player-icon.png in Resources */,
+				BB000001000000000000BC29 /* player-icon@2x.png in Resources */,
+				BB000001000000000000BC2A /* downloads-icon.png in Resources */,
+				BB000001000000000000BC2B /* downloads-icon@2x.png in Resources */,
+				BB000001000000000000BC2C /* search-icon.png in Resources */,
+				BB000001000000000000BC2D /* search-icon@2x.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
